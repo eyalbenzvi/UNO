@@ -66,7 +66,7 @@ describe('what a robot is told', () => {
 
   it('carries no cards, so the fairness argument is untouched', () => {
     const state = table({
-      hands: { [ANN]: cards('red:5'), [BEN]: cards('king'), [CAT]: cards('blue:3') },
+      hands: { [ANN]: cards('red:5'), [BEN]: cards('wild'), [CAT]: cards('blue:3') },
       assist: { [BEN]: 1 },
     });
     const serialised = JSON.stringify(viewOf(state, ANN).lenientToward);
@@ -105,7 +105,7 @@ describe('calling somebody out', () => {
 });
 
 describe('aiming the punishing cards', () => {
-  it('would rather not put a +2 on the seat it is looking after', () => {
+  it('would rather not put a Draw Two on the seat it is looking after', () => {
     const hands = {
       [ANN]: cards('red:drawTwo', 'red:5'),
       [BEN]: cards('blue:4'),
@@ -120,11 +120,11 @@ describe('aiming the punishing cards', () => {
       // move this choice is the demotion itself, and the answer is exact.
       assist: { [BEN]: 1 },
     });
-    expect(playedKind(plain, ANN)).toBe('plusTwo');
+    expect(playedKind(plain, ANN)).toBe('drawTwo');
     expect(playedKind(leaned, ANN)).toBe('number');
   });
 
-  it('demotes a +3 for the whole table when anybody on it is being looked after', () => {
+  it('would rather not put a Wild Draw Four on the seat it is looking after', () => {
     const hands = {
       [ANN]: cards('wildDrawFour', 'red:5'),
       [BEN]: cards('blue:4', 'blue:5'),
@@ -132,8 +132,23 @@ describe('aiming the punishing cards', () => {
     };
     const base = { hands, discardPile: cards('red:9'), currentPlayerIndex: 0 };
     expect(playedKind(table(base), ANN)).toBe('wildDrawFour');
-    // Cat is two seats away and still spared: a +3 lands on everybody.
-    expect(playedKind(table({ ...base, assist: { [CAT]: 1 } }), ANN)).toBe('number');
+    expect(playedKind(table({ ...base, assist: { [BEN]: 1 } }), ANN)).toBe('number');
+  });
+
+  it('spares only the seat the card would actually land on', () => {
+    /*
+     * Unlike the game this was built from, no card here punishes the whole table:
+     * a Wild Draw Four lands on the next seat and nobody else. So leniency towards
+     * somebody two seats away changes nothing, and pretending otherwise would make
+     * the robot play worse for no one's benefit.
+     */
+    const hands = {
+      [ANN]: cards('wildDrawFour', 'red:5'),
+      [BEN]: cards('blue:4', 'blue:5'),
+      [CAT]: cards('green:3', 'green:4'),
+    };
+    const base = { hands, discardPile: cards('red:9'), currentPlayerIndex: 0 };
+    expect(playedKind(table({ ...base, assist: { [CAT]: 1 } }), ANN)).toBe('wildDrawFour');
   });
 
   it('still plays a punishing card when it is the only legal one, rather than freezing the table', () => {
@@ -167,8 +182,8 @@ describe('playing a little worse', () => {
     };
     // Ben is not being looked after here, so the Stop keeps its ordinary score and
     // the only thing that can move the choice is the slack itself.
-    expect(kindsOver(table(base))).toEqual(new Set(['stop']));
-    expect(kindsOver(table({ ...base, assist: { [CAT]: 3 } }))).toEqual(new Set(['stop', 'number']));
+    expect(kindsOver(table(base))).toEqual(new Set(['skip']));
+    expect(kindsOver(table({ ...base, assist: { [CAT]: 3 } }))).toEqual(new Set(['skip', 'number']));
   });
 
   it('draws no randomness it would not have drawn, when nobody is being looked after', () => {

@@ -19,7 +19,7 @@ import {
  * Every decision about what animates lives in this one pure function, which is
  * the point: a table-driven test over the whole event vocabulary is possible
  * here and would not be possible if the same decisions were spread through the
- * view. The event union has 24 members and every one of them is named below —
+ * view. The event union's members are all and every one of them is named below —
  * including the nine that are deliberately silent, because "we chose not to
  * animate this" is a decision worth defending in a test rather than an omission.
  */
@@ -29,6 +29,33 @@ const THEM = 'pl_them000000';
 const THIRD = 'pl_third00000';
 
 const CARD: Card = { id: 'n-red-5-0', kind: 'number', color: 'red', value: 5 };
+
+/**
+ * Every event type, named once. A missing key is a type error rather than a silent
+ * gap, which is what keeps the table below honest when the engine gains an event.
+ */
+const DECIDED: Record<GameEventType, true> = {
+  gameStarted: true,
+  cardPlayed: true,
+  cardDrawn: true,
+  turnPassed: true,
+  colorChosen: true,
+  playerSkipped: true,
+  challengeOpened: true,
+  challengeDeclined: true,
+  challengeResolved: true,
+  unoDeclared: true,
+  unoCaught: true,
+  directionChanged: true,
+  turnChanged: true,
+  drawPileRecycled: true,
+  drawPileExhausted: true,
+  playerWon: true,
+  roundScored: true,
+  turnSkipped: true,
+  playerLeft: true,
+  roundAbandoned: true,
+};
 
 function beatOf(events: readonly GameEvent[], seq = 5): Beat {
   return { seq, events };
@@ -68,34 +95,44 @@ describe('what each event is worth', () => {
     },
     { event: { type: 'cardDrawn', playerId: THEM, count: 1 }, count: 1, note: 'flies' },
     {
-      event: { type: 'takiOpened', playerId: THEM, color: 'red', superTaki: false },
+      event: { type: 'turnPassed', playerId: THEM },
       count: 0,
-      note: 'bracketed by the plays inside it',
+      note: 'nothing happened, which is the whole content of it',
     },
-    { event: { type: 'takiClosed', playerId: THEM, cardsPlayed: 3 }, count: 0, note: 'same' },
     {
       event: { type: 'colorChosen', playerId: THEM, color: 'blue' },
       count: 0,
       note: 'the colour rail already cross-fades',
     },
-    { event: { type: 'playerSkipped', playerId: THEM }, count: 1, note: 'a Stop is felt at the seat' },
-    { event: { type: 'drawStacked', playerId: THEM, total: 4 }, count: 1, note: 'escalates' },
+    { event: { type: 'playerSkipped', playerId: THEM }, count: 1, note: 'a Skip is felt at the seat' },
     {
-      event: { type: 'drawRunCancelled', playerId: THEM, cancelled: 4 },
+      event: { type: 'challengeOpened', playerId: THEM, targetId: THIRD },
       count: 1,
-      note: 'the run dying, on the pile that grew it',
+      note: 'threatens, at the seat that has to answer',
     },
-    { event: { type: 'plusThreePlayed', playerId: THEM }, count: 1, note: 'threatens' },
-    { event: { type: 'plusThreeBroken', playerId: THEM, targetId: THIRD }, count: 2, note: 'reverses' },
+    {
+      event: { type: 'challengeDeclined', playerId: THEM, drawn: 4 },
+      count: 1,
+      note: 'the cards taken',
+    },
+    {
+      event: {
+        type: 'challengeResolved',
+        challengerId: THEM,
+        targetId: THIRD,
+        bluffed: true,
+        drawn: 4,
+      },
+      count: 2,
+      note: 'out and back',
+    },
     { event: { type: 'unoDeclared', playerId: THEM }, count: 1, note: 'the shout' },
     {
-      event: { type: 'unoCaught', playerId: THEM, caughtById: THIRD, penalty: 4 },
+      event: { type: 'unoCaught', playerId: THEM, caughtById: THIRD, penalty: 2 },
       count: 1,
       note: 'directional',
     },
-    { event: { type: 'breakerSpent', playerId: THEM, penalty: 3 }, count: 1, note: 'costs its owner' },
     { event: { type: 'directionChanged', direction: -1 }, count: 1, note: 'sweeps' },
-    { event: { type: 'extraTurn', playerId: THEM }, count: 1, note: 'a Plus goes again' },
     {
       event: { type: 'turnChanged', playerId: THEM },
       count: 0,
@@ -105,25 +142,20 @@ describe('what each event is worth', () => {
     { event: { type: 'drawPileExhausted' }, count: 0, note: 'nothing to show' },
     { event: { type: 'playerWon', playerId: THEM }, count: 1, note: 'the payoff' },
     {
-      event: { type: 'stairsAdvanced', playerId: THEM, stage: 3, dealt: 5 },
-      count: 1,
-      note: 'a step of the staircase, felt at the seat that took it',
+      event: { type: 'roundScored', playerId: THEM, points: 80 },
+      count: 0,
+      note: 'lands in the same beat as the win, which is already as loud as it gets',
     },
     { event: { type: 'turnSkipped', playerId: THEM, drew: 0 }, count: 1, note: 'somebody was away' },
-    {
-      event: { type: 'plusRefilled', playerId: THEM },
-      count: 0,
-      note: 'the draw it explains is already flying',
-    },
     { event: { type: 'playerLeft', playerId: THEM }, count: 0, note: 'bookkeeping' },
     { event: { type: 'roundAbandoned' }, count: 0, note: 'the screen changes instead' },
   ];
 
-  it('covers all 25 members of the event union', () => {
+  it('covers every member of the event union', () => {
     const covered = new Set(table.map((row) => row.event.type));
     // Kept honest by a compile-time exhaustive map, below.
-    expect(covered.size).toBe(25);
-    expect(table).toHaveLength(25);
+    expect(covered.size).toBe(table.length);
+    expect(Object.keys(DECIDED).sort()).toEqual([...covered].sort());
   });
 
   for (const row of table) {
@@ -134,34 +166,7 @@ describe('what each event is worth', () => {
 
   it('names every event type, so a new one cannot be forgotten', () => {
     // A missing key is a type error, not a silent gap.
-    const decided: Record<GameEventType, true> = {
-      gameStarted: true,
-      cardPlayed: true,
-      cardDrawn: true,
-      takiOpened: true,
-      takiClosed: true,
-      colorChosen: true,
-      playerSkipped: true,
-      drawStacked: true,
-      drawRunCancelled: true,
-      plusThreePlayed: true,
-      plusThreeBroken: true,
-      lastCardDeclared: true,
-      lastCardCaught: true,
-      breakerSpent: true,
-      plusRefilled: true,
-      directionChanged: true,
-      extraTurn: true,
-      turnChanged: true,
-      drawPileRecycled: true,
-      drawPileExhausted: true,
-      playerWon: true,
-      stairsAdvanced: true,
-      turnSkipped: true,
-      playerLeft: true,
-      roundAbandoned: true,
-    };
-    expect(Object.keys(decided)).toHaveLength(25);
+    expect(Object.keys(DECIDED).length).toBe(table.length);
   });
 });
 
@@ -222,22 +227,11 @@ describe('cards being drawn', () => {
   });
 });
 
-describe('the +2 run', () => {
-  it('lands harder as it grows, and stops growing before it becomes absurd', () => {
-    const intensities = [2, 4, 6, 12, 40].map((total) => {
-      const [motion] = plan([{ type: 'drawStacked', playerId: THEM, total }]);
-      return motion?.kind === 'pulse' ? motion.intensity : -1;
-    });
-    // Monotonic and bounded.
-    expect(intensities).toEqual([...intensities].sort((a, b) => a - b));
-    expect(Math.max(...intensities)).toBeLessThanOrEqual(3);
-    expect(Math.min(...intensities)).toBeGreaterThanOrEqual(1);
-  });
-});
-
-describe('a +3 sent back', () => {
+describe('a bluff called', () => {
   it('is one continuous reversal: the second flight starts where the first ended', () => {
-    const motions = plan([{ type: 'plusThreeBroken', playerId: THEM, targetId: THIRD }]);
+    const motions = plan([
+      { type: 'challengeResolved', challengerId: THEM, targetId: THIRD, bluffed: true, drawn: 4 },
+    ]);
     const [first, second] = motions;
     if (first?.kind !== 'flight' || second?.kind !== 'flight') {
       throw new Error('expected two flights');
@@ -248,10 +242,23 @@ describe('a +3 sent back', () => {
     expect(second.delayMs).toBeGreaterThanOrEqual(first.durationMs);
   });
 
-  it('anchors on my hand when the penalty comes back to me', () => {
-    const motions = plan([{ type: 'plusThreeBroken', playerId: THEM, targetId: ME }]);
-    const second = motions[1];
-    expect(second).toMatchObject({ to: 'hand' });
+  it('anchors on my hand when the cards come back to me', () => {
+    const motions = plan([
+      { type: 'challengeResolved', challengerId: THEM, targetId: ME, bluffed: true, drawn: 4 },
+    ]);
+    expect(motions[1]).toMatchObject({ to: 'hand' });
+  });
+
+  it('draws a loop that returns to the challenger when the call was wrong', () => {
+    // `targetId` is whoever draws, so a wrong call correctly ends where it began.
+    const motions = plan([
+      { type: 'challengeResolved', challengerId: THEM, targetId: THEM, bluffed: false, drawn: 6 },
+    ]);
+    const [first, second] = motions;
+    if (first?.kind !== 'flight' || second?.kind !== 'flight') {
+      throw new Error('expected two flights');
+    }
+    expect(first.from).toBe(second.to);
   });
 });
 
@@ -435,9 +442,11 @@ describe('what each event is worth in sound', () => {
     expect(cue([{ type: 'cardPlayed', playerId: THEM, card: CARD, resultingColor: 'red' }])).toBe('play');
     expect(cue([{ type: 'cardDrawn', playerId: ME, count: 1 }])).toBe('draw');
     expect(cue([{ type: 'turnChanged', playerId: ME }])).toBe('yourTurn');
-    expect(cue([{ type: 'drawStacked', playerId: THEM, total: 4 }])).toBe('penalty');
+    expect(
+      cue([{ type: 'challengeResolved', challengerId: THEM, targetId: ME, bluffed: true, drawn: 4 }]),
+    ).toBe('penalty');
     expect(cue([{ type: 'unoDeclared', playerId: THEM }])).toBe('lastCard');
-    expect(cue([{ type: 'unoCaught', playerId: ME, caughtById: THEM, penalty: 4 }])).toBe('caught');
+    expect(cue([{ type: 'unoCaught', playerId: ME, caughtById: THEM, penalty: 2 }])).toBe('caught');
     expect(cue([{ type: 'playerWon', playerId: THEM }])).toBe('win');
   });
 

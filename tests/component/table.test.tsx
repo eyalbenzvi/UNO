@@ -12,10 +12,18 @@ const red7: Card = { id: 'c2', kind: 'number', color: 'red', value: 7 };
 const blue3: Card = { id: 'c3', kind: 'number', color: 'blue', value: 3 };
 const red9: Card = { id: 'c4', kind: 'number', color: 'red', value: 9 };
 
-function table(options: { hand: readonly Card[]; myTurn?: boolean; patch?: Record<string, unknown> }): void {
+function table(options: {
+  hand: readonly Card[];
+  myTurn?: boolean;
+  patch?: Record<string, unknown>;
+  drawnCardId?: string;
+  lobby?: ReturnType<typeof lobbyFixture>;
+}): void {
   const fixture = enterGame({ myTurn: options.myTurn ?? true });
   setState({
     hand: options.hand,
+    drawnCardId: options.drawnCardId ?? null,
+    ...(options.lobby ? { lobby: options.lobby } : {}),
     publicState: {
       ...fixture.publicState,
       currentPlayerId: (options.myTurn ?? true) ? HOST_ID : GUEST_ID,
@@ -112,17 +120,24 @@ describe('what to do now', () => {
   });
 
   it('shows one prompt at a time, in priority order', () => {
-    // A pending draw and a pending Plus at once: the debt is the thing to answer.
-    table({ hand: [red5], patch: { pendingDraw: 2, pendingPlus: true } });
+    /*
+     * A frozen table outranks whose turn it is: a Wild Draw Four suspends the turn
+     * order for everybody, so the seat that has to answer must not be shown a line
+     * about the turn it is not currently taking.
+     */
+    table({
+      hand: [red5],
+      patch: { challenge: { playerId: GUEST_ID, targetId: HOST_ID } },
+    });
     renderApp();
-    expect(screen.getByText('מחכים לך 2 קלפים. אפשר לענות בקח 2 או במלך, או לקחת אותם.')).toBeInTheDocument();
-    expect(screen.queryByText('הונח פלוס — חייבים להניח עוד קלף.')).not.toBeInTheDocument();
+    expect(screen.getByText('הונח ג׳וקר קח 4')).toBeInTheDocument();
+    expect(screen.queryByText('אפשר להניח קלף או למשוך.')).not.toBeInTheDocument();
   });
 
-  it('uses the singular when a single card is owed', () => {
-    table({ hand: [red5], patch: { pendingDraw: 1 } });
+  it('narrows the turn to two choices once a card has been drawn', () => {
+    table({ hand: [red5], patch: { hasDrawn: true }, drawnCardId: red5.id });
     renderApp();
-    expect(screen.getByRole('button', { name: 'לקיחת קלף אחד' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'סיום התור' })).toBeInTheDocument();
   });
 });
 
@@ -145,6 +160,9 @@ describe('the other players', () => {
         ...fixture.publicState,
         currentPlayerId: HOST_ID,
         declaredUno: declared,
+        // The room resolves the window and publishes the answer; a seat that has
+        // called UNO is no longer in it.
+        catchableUno: declared.includes(GUEST_ID) ? [] : [GUEST_ID],
         players: [
           { id: HOST_ID, name: 'דנה', cardCount: 1 },
           { id: GUEST_ID, name: 'אלי', cardCount: 1 },
@@ -186,44 +204,52 @@ describe('the other players', () => {
 });
 
 /**
- * In a stairs round the card count stops being the score.
+ * In a points round the card count stops being the score.
  *
  * Two cards left may mean one step from winning or nothing at all, so how far down
  * the staircase each seat is has to be on the table beside the counts — including
  * the player's own, which is the one number they cannot read off anybody's seat.
  */
-describe('the staircase, on the table', () => {
-  function stairsTable(steps: { me: number; them: number }): void {
+describe('the running score, on the table', () => {
+  function scoringTable(points: { me: number; them: number }): void {
     table({
       hand: [red5, red7],
-      patch: {
-        mode: 'stairs',
+      patch: { mode: 'points' },
+      lobby: lobbyFixture({
+        phase: 'inGame',
+        targetScore: 500,
         players: [
-          { id: HOST_ID, name: 'דנה', cardCount: 2, stairsStep: steps.me },
-          { id: GUEST_ID, name: 'אלי', cardCount: 5, stairsStep: steps.them },
+          { id: HOST_ID, name: 'דנה', isCreator: true, health: 'connected', seat: 0, points: points.me },
+          {
+            id: GUEST_ID,
+            name: 'אלי',
+            isCreator: false,
+            health: 'connected',
+            seat: 1,
+            points: points.them,
+          },
         ],
-      },
+      }),
     });
   }
 
-  it('shows every seat’s step, and the player’s own beside their hand', () => {
-    stairsTable({ me: 3, them: 6 });
+  it('shows every seat’s score, and the player’s own beside their hand', () => {
+    scoringTable({ me: 130, them: 260 });
     renderApp();
 
     const seats = screen.getByRole('region', { name: 'שאר השחקנים' });
-    expect(within(seats).getByText('6/8')).toBeInTheDocument();
-    // Spelled out for anybody who cannot see the staircase glyph beside it.
-    expect(within(seats).getByText('מדרגות: 6 מתוך 8 ידיים הושלמו')).toBeInTheDocument();
+    expect(within(seats).getByText('260')).toBeInTheDocument();
+    // Spelled out for anybody who cannot see the trophy beside it.
+    expect(within(seats).getByText('260 נקודות')).toBeInTheDocument();
 
     const hand = screen.getByRole('region', { name: 'הקלפים שלך' });
-    expect(within(hand).getByText('3/8')).toBeInTheDocument();
+    expect(within(hand).getByText('130')).toBeInTheDocument();
   });
 
-  it('says nothing about a staircase in a classic round', () => {
+  it('says nothing about a score at a table that is not keeping one', () => {
     table({ hand: [red5, red7] });
     renderApp();
-    expect(screen.queryByText(/\d\/8/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/מדרגות/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/נקודות/)).not.toBeInTheDocument();
   });
 });
 
@@ -345,26 +371,24 @@ describe('the arming wave', () => {
     expect(document.querySelector('.hand')).not.toHaveClass('hand--armed');
   });
 
-  it('arms out of turn when an open +3 makes a breaker legal', () => {
+  it('goes dark while a Wild Draw Four freezes the table', () => {
     /*
-     * The case the cue exists for, and the reason it is not gated on whose turn
-     * it is: a +3 suspends the turn order, any holder of a breaker may answer,
-     * and the window closes on the first answer. Gating on `isMyTurn` would have
-     * left the hand dark at the one moment a player has to decide fastest.
+     * Nothing is playable by anybody until the card is answered, and the answer is
+     * a button rather than a card. A hand left armed here would be a fan of lit
+     * cards, every one of which the room refuses.
      */
     const fixture = enterGame({ myTurn: false });
-    const breaker = { id: 'brk-0', kind: 'breakPlusThree' as const };
     setState({
-      hand: [breaker],
+      hand: [red5],
       publicState: {
         ...fixture.publicState,
         currentPlayerId: GUEST_ID,
-        plusThree: { playerId: GUEST_ID },
+        challenge: { playerId: GUEST_ID, targetId: HOST_ID },
       },
     });
     renderApp();
 
-    expect(document.querySelector('.hand')).toHaveClass('hand--armed');
+    expect(document.querySelector('.hand')).not.toHaveClass('hand--armed');
   });
 
   it('staggers the wave across the hand by position', () => {

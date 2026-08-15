@@ -265,18 +265,18 @@ describe('deciding again when the pause is over', () => {
 });
 
 describe('choosing between seats', () => {
-  it('answers a +3 before anything else at the table', () => {
+  it('answers a Wild Draw Four before anything else at the table', () => {
     const state = makeState({
       players: players('Ann', 'Ben'),
-      hands: { [ANN]: cards('breakPlusThree', 'red:5'), [BEN]: cards('blue:4', 'blue:6') },
+      hands: { [ANN]: cards('wildDrawFour', 'red:5'), [BEN]: cards('blue:4', 'blue:6') },
       currentPlayerIndex: 1,
-      plusThree: { playerId: BEN, awaiting: [ANN] },
+      challenge: { playerId: BEN, targetId: ANN, bluffed: false },
       discardPile: cards('red:9'),
     });
     const box = harness(state, [ANN, BEN]);
     box.runner.schedule();
     box.fire();
-    expect(box.submitted[0]?.move.kind).toBe('breaker');
+    expect(box.submitted[0]?.move.kind).toBe('challenge');
   });
 
   it('lets a seat declare rather than making it wait for another seat’s turn', () => {
@@ -330,16 +330,16 @@ describe('how long a robot thinks', () => {
     expect(pause).toBeLessThanOrEqual(BOT_THINK_MAX_MS);
   });
 
-  it('answers a +3 far faster than it calls somebody out', () => {
+  it('answers a Wild Draw Four far faster than it calls somebody out', () => {
     // Answering unfreezes every other seat, so it leads; a catch is the slowest move
     // it makes, so the people at the table normally get there first.
     const answering = harness(
       makeState({
         players: players('Ann', 'Ben'),
-        hands: { [ANN]: cards('breakPlusThree'), [BEN]: cards('blue:4') },
+        hands: { [ANN]: cards('wildDrawFour'), [BEN]: cards('blue:4') },
         currentPlayerIndex: 1,
         discardPile: cards('red:9'),
-        plusThree: { playerId: BEN, awaiting: [ANN] },
+        challenge: { playerId: BEN, targetId: ANN, bluffed: false },
       }),
       [ANN],
       () => 0.5,
@@ -413,39 +413,24 @@ describe('how long a robot thinks', () => {
     expect(box.pauses[0]?.ms).toBe(0);
   });
 
-  it('plays a Taki sequence briskly, but never faster than the cards can be seen', () => {
+  it('ends a drawn turn with no pause at all', () => {
     /*
-     * Two bounds, and the sequence pause is the one number that has to satisfy both.
-     * Below: a card played by somebody else flies for `PLAY_REMOTE_MS` (240 ms), so
-     * anything near that put the next card in the air as the last one landed and the
-     * run read as a blur. Above: the decision was made when the sequence opened, so
-     * a card inside one must not cost what a fresh think costs — its whole range
-     * stays under the middle of the think range.
+     * The card has already been drawn and looked at in front of everybody, and the
+     * pause that bought that moment has been spent. A second human-shaped delay
+     * would make every unlucky turn take twice as long as an ordinary one, which
+     * reads as a robot hesitating over a decision it does not have.
      */
-    const box = harness(
-      makeState({
-        players: players('Ann', 'Ben'),
-        hands: { [ANN]: cards('red:5', 'red:7'), [BEN]: cards('blue:4') },
-        currentPlayerIndex: 0,
-        discardPile: cards('red:taki'),
-        takiMode: {
-          color: 'red',
-          playerId: ANN,
-          cardsPlayed: 1,
-          openedWithSuperTaki: false,
-          takisOnly: false,
-        },
-      }),
-      [ANN],
-      () => 0.5,
-      { realPacing: true },
-    );
+    const state = makeState({
+      players: players('Ann', 'Ben'),
+      hands: { [ANN]: cards('green:5', 'green:7'), [BEN]: cards('blue:4', 'blue:6') },
+      currentPlayerIndex: 0,
+      activeColor: 'red',
+      discardPile: cards('red:9'),
+    });
+    const drawnId = (state.hands[ANN] ?? [])[1]!.id;
+    const box = harness({ ...state, drawnCardId: drawnId }, [ANN], () => 0.5, { realPacing: true });
     box.runner.schedule();
-    const pause = box.pauses[0]?.ms ?? 0;
-    expect(pause).toBeGreaterThanOrEqual(BOT_SEQUENCE_MIN_MS);
-    expect(pause).toBeLessThanOrEqual(BOT_SEQUENCE_MAX_MS);
-    expect(BOT_SEQUENCE_MIN_MS).toBeGreaterThan(2 * PLAY_REMOTE_MS);
-    expect(BOT_SEQUENCE_MAX_MS).toBeLessThan((BOT_THINK_MIN_MS + BOT_THINK_MAX_MS) / 2);
+    expect(box.pauses[0]?.ms).toBe(0);
   });
 
   it('owes nothing for a seat with no view of the table', () => {

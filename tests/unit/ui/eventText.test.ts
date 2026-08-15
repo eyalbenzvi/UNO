@@ -10,20 +10,23 @@ const he = createTranslator('he');
 const nameOf = (playerId: string): string => (playerId === 'p1' ? 'Dana' : 'Eli');
 
 const red5: Card = { id: 'x1', kind: 'number', color: 'red', value: 5 };
-const blueStop: Card = { id: 'x2', kind: 'skip', color: 'blue' };
-const superTaki: Card = { id: 'x3', kind: 'superTaki' };
+const blueSkip: Card = { id: 'x2', kind: 'skip', color: 'blue' };
+const wildFour: Card = { id: 'x3', kind: 'wildDrawFour' };
+const green0: Card = { id: 'x4', kind: 'number', color: 'green', value: 0 };
 
 describe('card text', () => {
   it('names numbers, actions and wilds', () => {
     expect(describeCard(t, red5)).toBe('Red 5');
-    expect(describeCard(t, blueStop)).toBe('Blue Stop');
-    expect(describeCard(t, superTaki)).toBe('Super Taki');
+    expect(describeCard(t, green0)).toBe('Green 0');
+    expect(describeCard(t, blueSkip)).toBe('Blue Skip');
+    expect(describeCard(t, wildFour)).toBe('Wild Draw Four');
   });
 
   it('prints a short face label', () => {
     expect(cardFaceLabel(t, red5)).toBe('5');
-    expect(cardFaceLabel(t, blueStop)).toBe('Stop');
-    expect(cardFaceLabel(t, superTaki)).toBe('Super Taki');
+    expect(cardFaceLabel(t, green0)).toBe('0');
+    expect(cardFaceLabel(t, blueSkip)).toBe('Skip');
+    expect(cardFaceLabel(t, wildFour)).toBe('Wild Draw Four');
   });
 
   it('localises colours', () => {
@@ -38,42 +41,42 @@ describe('event descriptions', () => {
     [{ type: 'cardPlayed', playerId: 'p1', card: red5, resultingColor: 'red' }, 'Dana played Red 5.'],
     [{ type: 'cardDrawn', playerId: 'p2', count: 1 }, 'Eli drew a card.'],
     [{ type: 'cardDrawn', playerId: 'p2', count: 3 }, 'Eli drew 3 cards.'],
-    [
-      { type: 'takiOpened', playerId: 'p1', color: 'green', superTaki: false },
-      'Dana opened a Taki sequence in Green.',
-    ],
-    [
-      { type: 'takiOpened', playerId: 'p1', color: 'green', superTaki: true },
-      'Dana opened a Super Taki sequence in Green.',
-    ],
-    [{ type: 'takiClosed', playerId: 'p1', cardsPlayed: 4 }, 'Dana closed the sequence after 4 cards.'],
+    [{ type: 'turnPassed', playerId: 'p1' }, 'Dana ended their turn.'],
     [{ type: 'colorChosen', playerId: 'p1', color: 'blue' }, 'Dana chose Blue.'],
     [{ type: 'playerSkipped', playerId: 'p2' }, 'Eli was skipped.'],
-    [{ type: 'drawStacked', playerId: 'p1', total: 4 }, 'Dana raised the penalty to 4 cards.'],
     [
-      { type: 'drawRunCancelled', playerId: 'p2', cancelled: 4 },
-      'Eli played a King — the 4-card penalty is cancelled.',
+      { type: 'challengeOpened', playerId: 'p1', targetId: 'p2' },
+      'Dana played a Wild Draw Four at Eli.',
+    ],
+    [{ type: 'challengeDeclined', playerId: 'p2', drawn: 4 }, 'Eli took the cards — 4 cards drawn.'],
+    [{ type: 'challengeDeclined', playerId: 'p2', drawn: 1 }, 'Eli took the cards — 1 card drawn.'],
+    [
+      { type: 'challengeResolved', challengerId: 'p2', targetId: 'p1', bluffed: true, drawn: 4 },
+      'Eli called the bluff and was right — Dana draws 4.',
     ],
     [
-      { type: 'drawRunCancelled', playerId: 'p2', cancelled: 1 },
-      'Eli played a King — the 1-card penalty is cancelled.',
+      { type: 'challengeResolved', challengerId: 'p2', targetId: 'p2', bluffed: false, drawn: 6 },
+      'Eli called the bluff and was wrong — they draw 6.',
+    ],
+    [{ type: 'unoDeclared', playerId: 'p1' }, 'Dana called UNO.'],
+    [
+      { type: 'unoCaught', playerId: 'p1', caughtById: 'p2', penalty: 2 },
+      'Eli caught Dana without an UNO — 2 cards drawn.',
     ],
     [{ type: 'directionChanged', direction: 1 }, 'The play order is now forwards.'],
     [{ type: 'directionChanged', direction: -1 }, 'The play order is now reversed.'],
-    [{ type: 'extraTurn', playerId: 'p1' }, 'Dana plays again.'],
     [{ type: 'turnChanged', playerId: 'p2' }, 'Eli is up.'],
     [{ type: 'drawPileRecycled', count: 12 }, 'The discard pile was shuffled back in (12 cards).'],
     [{ type: 'drawPileExhausted' }, 'There are no cards left to draw.'],
     [{ type: 'playerWon', playerId: 'p1' }, 'Dana has no cards left and wins!'],
+    [{ type: 'roundScored', playerId: 'p1', points: 80 }, 'Dana scores 80 for the round.'],
+    [{ type: 'turnSkipped', playerId: 'p2', drew: 0 }, 'Eli was away, so their turn was passed.'],
     [
-      { type: 'stairsAdvanced', playerId: 'p1', stage: 3, dealt: 5 },
-      'Dana finished hand 3 of 8 and takes 5 new cards.',
+      { type: 'turnSkipped', playerId: 'p2', drew: 1 },
+      'Eli was away, so their turn was passed and they drew a card.',
     ],
-    [
-      // The last step of the staircase is a single card, and it is spelled out.
-      { type: 'stairsAdvanced', playerId: 'p2', stage: 7, dealt: 1 },
-      'Eli finished hand 7 of 8 and takes the last card of the staircase.',
-    ],
+    [{ type: 'playerLeft', playerId: 'p2' }, 'Eli left the round.'],
+    [{ type: 'roundAbandoned' }, 'Too few players are left, so the round was abandoned.'],
   ];
 
   it.each(cases)('describes %j', (event, expected) => {

@@ -39,22 +39,22 @@ describe('create room form', () => {
     });
   });
 
-  it('opens a table in stairs mode when that is what was picked', async () => {
+  it('opens a table in points mode when that is what was picked', async () => {
     const createRoom = vi.fn().mockResolvedValue(undefined);
     setState({ screen: 'create', createRoom });
     const { user } = renderApp();
 
     await user.type(screen.getByLabelText('השם שיוצג'), 'דנה');
-    await user.click(screen.getByRole('radio', { name: 'טאקי מדרגות' }));
-    // The hint changes with the choice, because "stairs" means nothing on its own.
-    expect(screen.getByText(/מי שנגמרים לו הקלפים מקבל יד חדשה/)).toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: 'ניקוד ל־500' }));
+    // The hint changes with the choice, because "points" means nothing on its own.
+    expect(screen.getByText(/הראשון שמגיע ל־500/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'יצירת חדר' }));
     expect(createRoom).toHaveBeenCalledWith({
       name: 'דנה',
       maxPlayers: 4,
       tableLanguage: 'he',
-      gameMode: 'stairs',
+      gameMode: 'points',
     });
   });
 

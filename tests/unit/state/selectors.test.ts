@@ -6,9 +6,9 @@ import {
   everyoneConnected,
   amCreator,
   isMyTurn,
-  isTakiOpenForMe,
+  mustAnswerChallenge,
   localLobbyPlayer,
-  myStairsStep,
+  myPoints,
   needsColorChoice,
   opponents,
   playableCardIds,
@@ -65,12 +65,10 @@ const publicState: PublicGameState = {
   activeColor: 'red',
   direction: 1,
   currentPlayerId: 'b',
-  takiMode: null,
-  pendingPlus: false,
-  pendingDraw: 0,
-  freePlay: false,
-  plusThree: null,
+  hasDrawn: false,
+  challenge: null,
   declaredUno: [],
+  catchableUno: [],
   winnerId: null,
 };
 
@@ -90,6 +88,7 @@ function state(patch: Partial<AppState> = {}): AppState {
     lobby,
     publicState,
     hand: [red5, blue3, wild],
+    drawnCardId: null,
     feed: [],
     beat: null,
     playAgain: null,
@@ -162,19 +161,23 @@ describe('turn selectors', () => {
     expect(activeColor(state({ publicState: null }))).toBeNull();
   });
 
-  it('knows whether the open sequence is mine', () => {
-    const taki = {
-      color: 'red' as const,
-      playerId: 'b',
-      cardsPlayed: 1,
-      openedWithSuperTaki: false,
-      takisOnly: false,
-    };
-    expect(isTakiOpenForMe(state({ publicState: { ...publicState, takiMode: taki } }))).toBe(true);
+  it('knows whether an open challenge is mine to answer', () => {
     expect(
-      isTakiOpenForMe(state({ publicState: { ...publicState, takiMode: { ...taki, playerId: 'a' } } })),
+      mustAnswerChallenge(
+        state({
+          publicState: { ...publicState, challenge: { playerId: 'a', targetId: 'b' } },
+        }),
+      ),
+    ).toBe(true);
+    // Addressed to somebody else: the table is frozen, but not by this seat.
+    expect(
+      mustAnswerChallenge(
+        state({
+          publicState: { ...publicState, challenge: { playerId: 'b', targetId: 'c' } },
+        }),
+      ),
     ).toBe(false);
-    expect(isTakiOpenForMe(state())).toBe(false);
+    expect(mustAnswerChallenge(state())).toBe(false);
   });
 });
 
@@ -278,37 +281,37 @@ describe('hand display order', () => {
  */
 describe('mode and score selectors', () => {
   it('reads the round’s mode from the round, and the table’s from the lobby', () => {
-    // A table that switched to stairs for the *next* deal, while a classic round is
+    // A table that switched to a scored match for the *next* deal, while a classic round is
     // still on screen. The two answers must not be the same one.
     const between = state({
-      lobby: { ...lobby, gameMode: 'stairs' },
+      lobby: { ...lobby, gameMode: 'points' },
       publicState: { ...publicState, mode: 'classic' },
     });
     expect(roundGameMode(between)).toBe('classic');
-    expect(tableGameMode(between)).toBe('stairs');
+    expect(tableGameMode(between)).toBe('points');
 
     // And a peer that says nothing means the game as it always was.
     expect(roundGameMode(state())).toBe('classic');
     expect(tableGameMode(state())).toBe('classic');
   });
 
-  it('answers with a step only while a staircase is being played', () => {
-    expect(myStairsStep(state())).toBeNull();
-    const stairs = state({
-      publicState: {
-        ...publicState,
-        mode: 'stairs',
+  it('answers with a score only while one is being kept', () => {
+    expect(myPoints(state())).toBeNull();
+    const scoring = state({
+      lobby: {
+        ...lobby,
+        targetScore: 500,
         players: [
-          { id: 'a', name: 'Ann', cardCount: 3, stairsStep: 2 },
-          { id: 'b', name: 'Ben', cardCount: 2, stairsStep: 5 },
-          { id: 'c', name: 'Cat', cardCount: 7, stairsStep: 0 },
+          { id: 'a', name: 'Ann', isCreator: true, health: 'connected', seat: 0, points: 120 },
+          { id: 'b', name: 'Ben', isCreator: false, health: 'disconnected', seat: 1, points: 340 },
+          { id: 'c', name: 'Cat', isCreator: false, health: 'disconnected', seat: 2, points: 0 },
         ],
       },
     });
     // The local seat is Ben's.
-    expect(myStairsStep(stairs)).toBe(5);
-    expect(opponents(stairs).map((seat) => seat.stairsStep)).toEqual([0, 2]);
-    expect(opponents(state()).map((seat) => seat.stairsStep)).toEqual([null, null]);
+    expect(myPoints(scoring)).toBe(340);
+    expect(opponents(scoring).map((seat) => seat.points)).toEqual([0, 120]);
+    expect(opponents(state()).map((seat) => seat.points)).toEqual([null, null]);
   });
 
   it('ranks the score by wins, sharing a place on a tie', () => {
@@ -323,9 +326,9 @@ describe('mode and score selectors', () => {
       },
     });
     expect(scoreboard(scored)).toEqual([
-      { playerId: 'b', name: 'Ben', wins: 3, rank: 1 },
-      { playerId: 'a', name: 'Ann', wins: 1, rank: 2 },
-      { playerId: 'c', name: 'Cat', wins: 1, rank: 2 },
+      { playerId: 'b', name: 'Ben', wins: 3, points: 0, rank: 1 },
+      { playerId: 'a', name: 'Ann', wins: 1, points: 0, rank: 2 },
+      { playerId: 'c', name: 'Cat', wins: 1, points: 0, rank: 2 },
     ]);
   });
 

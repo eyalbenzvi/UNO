@@ -4,10 +4,13 @@ import { Button } from '../../../../components/Button.tsx';
 import { Icon } from '../../../../components/Icon.tsx';
 import { useT } from '../../../../app/useT.ts';
 import {
+  matchWinnerId,
+  playerName,
   robotSeat,
   roundGameMode,
   scoreboard,
   standings,
+  targetScore,
   wasAbandoned,
   winnerName,
 } from '../../state/selectors.ts';
@@ -27,6 +30,15 @@ export function GameOverScreen(): ReactNode {
   const rows = standings(state);
   const scores = scoreboard(state);
   const scoring = roundGameMode(state) === 'points';
+  const target = targetScore(state);
+  /*
+   * The end of the *match*, which is a different thing from the end of the round
+   * this screen is otherwise about — and the reason it is stated separately rather
+   * than folded into the winner line: a round can be won by somebody who has not
+   * won the game, and on the round that ends both, the table wants to be told both.
+   */
+  const matchWinner = matchWinnerId(state);
+  const iTookTheMatch = matchWinner !== null && matchWinner === state.localPlayerId;
   const winner = state.publicState?.winnerId ?? null;
   const abandoned = wasAbandoned(state);
   const iWon = winner !== null && winner === state.localPlayerId;
@@ -125,6 +137,15 @@ export function GameOverScreen(): ReactNode {
       {scores.length > 0 ? (
         <section className="panel">
           <h2 className="panel__title">{t('over.scoreTitle')}</h2>
+          {matchWinner === null ? null : (
+            <p className="over__match" role="status">
+              <Icon name="trophy" size={1.1} />
+              {iTookTheMatch
+                ? t('over.matchWinnerYou')
+                : t('over.matchWinner', { name: playerName(state, matchWinner) })}
+              <span className="text-small muted">{t('over.matchNext')}</span>
+            </p>
+          )}
           {/* Same table styling, its own name: two tables of the same shape on one
               screen otherwise leave "the standings" ambiguous to a stylesheet and to
               anything selecting a row — which is exactly how the end-to-end test
@@ -134,7 +155,7 @@ export function GameOverScreen(): ReactNode {
               <tr>
                 <th scope="col">{t('over.rank')}</th>
                 <th scope="col">{t('over.player')}</th>
-                <th scope="col">{t('over.wins')}</th>
+                <th scope="col">{scoring ? t('over.points') : t('over.wins')}</th>
               </tr>
             </thead>
             <tbody>
@@ -149,13 +170,15 @@ export function GameOverScreen(): ReactNode {
                       ) : null}
                     </span>
                   </td>
-                  <td className="standings__count">{row.wins}</td>
+                  <td className="standings__count">{scoring ? row.points : row.wins}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           {/* The one thing about the score worth promising, said where the score is. */}
-          <p className="text-small muted">{t('over.scoreHint')}</p>
+          <p className="text-small muted">
+            {scoring && target !== null ? t('over.pointsHint', { target }) : t('over.scoreHint')}
+          </p>
         </section>
       ) : null}
 

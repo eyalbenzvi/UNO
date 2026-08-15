@@ -35,12 +35,15 @@ describe('client message validation', () => {
   it('accepts every action shape', () => {
     for (const action of [
       { type: 'playCard', cardId: 'n-red-5-0' },
-      { type: 'playCard', cardId: 'w-colorChange-0', chosenColor: 'green' },
-      { type: 'playCard', cardId: 'w-colorChange-0', chosenColor: 'green', declareLastCard: true },
-      { type: 'playCard', cardId: 'w-breakPlusThree-0' },
+      { type: 'playCard', cardId: 'w-wild-0', chosenColor: 'green' },
+      { type: 'playCard', cardId: 'w-wild-0', chosenColor: 'green', declareUno: true },
+      { type: 'playCard', cardId: 'w-wildDrawFour-0', chosenColor: 'blue' },
       { type: 'drawCard' },
-      { type: 'closeTaki' },
-      { type: 'passBreak' },
+      { type: 'passTurn' },
+      { type: 'acceptWildDrawFour' },
+      { type: 'challengeWildDrawFour' },
+      { type: 'declareUno' },
+      { type: 'catchUno', targetId: 'p-bob' },
     ]) {
       expect(parseClientMessage(envelope('action', { action })).ok).toBe(true);
     }
@@ -164,49 +167,47 @@ describe('host message validation', () => {
         resultingColor: 'red',
       },
       { type: 'cardDrawn', playerId: 'p-alice', count: 1 },
-      { type: 'takiOpened', playerId: 'p-alice', color: 'red', superTaki: false },
-      { type: 'takiClosed', playerId: 'p-alice', cardsPlayed: 3 },
+      { type: 'turnPassed', playerId: 'p-alice' },
       { type: 'colorChosen', playerId: 'p-alice', color: 'blue' },
       { type: 'playerSkipped', playerId: 'p-bob' },
-      { type: 'drawStacked', playerId: 'p-alice', total: 4 },
-      { type: 'drawRunCancelled', playerId: 'p-bob', cancelled: 4 },
-      { type: 'plusThreePlayed', playerId: 'p-alice' },
-      { type: 'plusThreeBroken', playerId: 'p-bob', targetId: 'p-alice' },
+      { type: 'challengeOpened', playerId: 'p-alice', targetId: 'p-bob' },
+      { type: 'challengeDeclined', playerId: 'p-bob', drawn: 4 },
+      {
+        type: 'challengeResolved',
+        challengerId: 'p-bob',
+        targetId: 'p-alice',
+        bluffed: true,
+        drawn: 4,
+      },
+      { type: 'unoDeclared', playerId: 'p-alice' },
+      { type: 'unoCaught', playerId: 'p-alice', caughtById: 'p-bob', penalty: 2 },
       { type: 'directionChanged', direction: -1 },
-      { type: 'extraTurn', playerId: 'p-alice' },
       { type: 'turnChanged', playerId: 'p-bob' },
       { type: 'drawPileRecycled', count: 12 },
       { type: 'drawPileExhausted' },
       { type: 'playerWon', playerId: 'p-alice' },
-      { type: 'stairsAdvanced', playerId: 'p-alice', stage: 3, dealt: 5 },
+      { type: 'roundScored', playerId: 'p-alice', points: 80 },
+      { type: 'turnSkipped', playerId: 'p-bob', drew: 1 },
+      { type: 'playerLeft', playerId: 'p-bob' },
+      { type: 'roundAbandoned' },
     ];
     expect(parseRoomMessage(envelope('gameEvents', { version: 3, events })).ok).toBe(true);
   });
 
-  it('carries a stairs round: the mode, and each seat’s step', () => {
-    const stairs = createGame(players('Alice', 'Bob'), 99, 1, 0, 'stairs');
-    if (!stairs.ok) {
+  it('carries a points round: the mode, and no score until one is decided', () => {
+    const scored = createGame(players('Alice', 'Bob'), 99, 1, 0, 'points');
+    if (!scored.ok) {
       throw new Error('fixture failed');
     }
-    const view = toPublicGameState(stairs.state);
+    const view = toPublicGameState(scored.state);
     const parsed = publicGameStateSchema.safeParse(view);
     expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.mode).toBe('stairs');
-    expect(parsed.success && parsed.data.players.every((player) => player.stairsStep === 0)).toBe(true);
-  });
-
-  it('refuses a step outside the staircase', () => {
-    // Nought is not a step that happened, and the eighth is a win rather than one.
-    for (const stage of [0, 8]) {
-      expect(
-        parseRoomMessage(
-          envelope('gameEvents', {
-            version: 3,
-            events: [{ type: 'stairsAdvanced', playerId: 'p-alice', stage, dealt: 1 }],
-          }),
-        ),
-      ).toMatchObject({ ok: false, error: 'invalidPayload' });
-    }
+    expect(parsed.success && parsed.data.mode).toBe('points');
+    // Absent rather than nought while the round is in play: a score nobody has
+    // earned yet must not be renderable as one.
+    expect(
+      parsed.success && parsed.data.players.every((player) => player.roundPoints === undefined),
+    ).toBe(true);
   });
 
   it('rejects a rejection code that is not part of the engine', () => {

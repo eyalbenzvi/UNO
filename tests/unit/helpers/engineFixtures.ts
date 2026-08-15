@@ -100,7 +100,12 @@ export function makeState(overrides: StateOverrides = {}): GameState {
     overrides.unoExposed ??
     Object.fromEntries(
       list
-        .filter((player) => (hands[player.id] ?? []).length === 1 && !declaredUno.includes(player.id))
+        .filter(
+          (player) =>
+            player.left !== true &&
+            (hands[player.id] ?? []).length === 1 &&
+            !declaredUno.includes(player.id),
+        )
         .map((player) => [player.id, turnSeq]),
     );
   const discardPile = overrides.discardPile ?? cards('red:9');

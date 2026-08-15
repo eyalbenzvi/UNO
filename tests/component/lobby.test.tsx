@@ -225,8 +225,8 @@ describe('lobby', () => {
 
     await user.click(screen.getByText('הגדרות החדר'));
     const group = screen.getByRole('radiogroup', { name: 'סוג המשחק' });
-    await user.click(within(group).getByRole('radio', { name: 'טאקי מדרגות' }));
-    expect(setGameMode).toHaveBeenCalledWith('stairs');
+    await user.click(within(group).getByRole('radio', { name: 'ניקוד ל־500' }));
+    expect(setGameMode).toHaveBeenCalledWith('points');
   });
 
   /*
@@ -234,18 +234,18 @@ describe('lobby', () => {
    * winning means, so the rest of the table has to know before the cards come out
    * rather than halfway through the first hand.
    */
-  it('tells every seat when the table is playing stairs', () => {
-    enterLobby({ lobby: lobbyFixture({ gameMode: 'stairs' }), localPlayerId: GUEST_ID });
+  it('tells every seat when the table is playing points', () => {
+    enterLobby({ lobby: lobbyFixture({ gameMode: 'points' }), localPlayerId: GUEST_ID });
     renderApp();
 
-    expect(screen.getByText('טאקי מדרגות')).toBeInTheDocument();
-    expect(screen.getByText(/מי שנגמרים לו הקלפים מקבל יד חדשה/)).toBeInTheDocument();
+    expect(screen.getByText('ניקוד ל־500')).toBeInTheDocument();
+    expect(screen.getByText(/הראשון שמגיע ל־500/)).toBeInTheDocument();
   });
 
   it('says nothing about a mode at an ordinary table', () => {
     enterLobby({ localPlayerId: GUEST_ID });
     renderApp();
-    expect(screen.queryByText('טאקי מדרגות')).not.toBeInTheDocument();
+    expect(screen.queryByText('ניקוד ל־500')).not.toBeInTheDocument();
   });
 });
 

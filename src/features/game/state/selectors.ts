@@ -384,6 +384,8 @@ export interface ScoreRow {
   readonly playerId: string;
   readonly name: string;
   readonly wins: number;
+  /** Running match total. Meaningful only when the table is playing to a score. */
+  readonly points: number;
   readonly rank: number;
 }
 
@@ -401,22 +403,46 @@ export interface ScoreRow {
  */
 export function scoreboard(state: Pick<TableSnapshot, 'lobby'>): readonly ScoreRow[] {
   const players = state.lobby?.players ?? [];
-  if (!players.some((player) => (player.wins ?? 0) > 0)) {
+  const scoring = state.lobby?.targetScore !== undefined;
+  /*
+   * Ranked by whichever number this table is actually playing to. A points match
+   * ordered by rounds won would put the wrong player top the moment somebody wins
+   * two small rounds against one big one, which is the whole difference between the
+   * two modes.
+   */
+  const valueOf = (player: LobbyPlayer): number => (scoring ? (player.points ?? 0) : (player.wins ?? 0));
+  if (!players.some((player) => valueOf(player) > 0)) {
     return [];
   }
   const sorted = players
-    .map((player) => ({ playerId: player.id, name: player.name, wins: player.wins ?? 0 }))
-    .sort((a, b) => b.wins - a.wins || a.name.localeCompare(b.name));
+    .map((player) => ({
+      playerId: player.id,
+      name: player.name,
+      wins: player.wins ?? 0,
+      points: player.points ?? 0,
+    }))
+    .sort((a, b) => (scoring ? b.points - a.points : b.wins - a.wins) || a.name.localeCompare(b.name));
 
   let rank = 0;
   let previous: number | null = null;
   return sorted.map((row, index) => {
-    if (previous === null || row.wins !== previous) {
+    const value = scoring ? row.points : row.wins;
+    if (previous === null || value !== previous) {
       rank = index + 1;
-      previous = row.wins;
+      previous = value;
     }
     return { ...row, rank };
   });
+}
+
+/** The seat that has taken the match, once somebody has crossed the target. */
+export function matchWinnerId(state: Pick<TableSnapshot, 'lobby'>): string | null {
+  return state.lobby?.matchWinnerId ?? null;
+}
+
+/** What a points match is being played to, or `null` when none is. */
+export function targetScore(state: Pick<TableSnapshot, 'lobby'>): number | null {
+  return state.lobby?.targetScore ?? null;
 }
 
 export function winnerName(state: Pick<TableSnapshot, 'publicState' | 'lobby'>): string | null {

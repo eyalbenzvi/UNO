@@ -196,33 +196,41 @@ describe('end of round', () => {
   });
 
   /*
-   * Ranking by cards left is the wrong answer in a stairs round: a player one step
+   * Ranking by cards left is the wrong answer in a points round: a player one step
    * from the end can be holding more cards than somebody who has emptied nothing.
    */
-  it('ranks a stairs round by the staircase, and shows how far each seat got', () => {
+  it('shows what each seat scored in a points round', () => {
     const fixture = gameFixture();
     enterGameOver({
       publicState: {
         ...fixture.publicState,
         phase: 'finished',
-        mode: 'stairs',
+        mode: 'points',
         winnerId: GUEST_ID,
         currentPlayerId: null,
         players: [
-          { id: HOST_ID, name: 'דנה', cardCount: 2, stairsStep: 6 },
-          { id: GUEST_ID, name: 'אלי', cardCount: 0, stairsStep: 8 },
+          { id: HOST_ID, name: 'דנה', cardCount: 2, roundPoints: 24 },
+          { id: GUEST_ID, name: 'אלי', cardCount: 0, roundPoints: 24 },
         ],
       },
     });
     renderApp();
 
     const table = screen.getByRole('table');
-    expect(within(table).getByRole('columnheader', { name: 'ידיים שהושלמו' })).toBeInTheDocument();
+    expect(within(table).getByRole('columnheader', { name: 'ניקוד' })).toBeInTheDocument();
     const rows = within(table).getAllByRole('row');
     expect(rows[1]).toHaveTextContent('אלי');
-    expect(rows[1]).toHaveTextContent('8/8');
-    expect(rows[2]).toHaveTextContent('דנה');
-    expect(rows[2]).toHaveTextContent('6/8');
+    expect(rows[1]).toHaveTextContent('24');
+  });
+
+  it('says nothing about a score in a classic round', () => {
+    const fixture = gameFixture();
+    enterGameOver({
+      publicState: { ...fixture.publicState, phase: 'finished', winnerId: GUEST_ID, currentPlayerId: null },
+    });
+    renderApp();
+    const table = screen.getByRole('table');
+    expect(within(table).queryByRole('columnheader', { name: 'ניקוד' })).not.toBeInTheDocument();
   });
 
   it('does not offer a staircase column for a classic round', () => {

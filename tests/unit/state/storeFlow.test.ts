@@ -165,11 +165,11 @@ describe('creating a room through the store', () => {
   });
 
   it('carries the game mode from the create screen to the room, and can change it', async () => {
-    await store().createRoom({ name: 'דנה', maxPlayers: 4, tableLanguage: 'he', gameMode: 'stairs' });
+    await store().createRoom({ name: 'דנה', maxPlayers: 4, tableLanguage: 'he', gameMode: 'points' });
     await flush();
     // The room's own answer, not the value the screen sent: it comes back in the
     // lobby snapshot every seat receives.
-    expect(store().lobby?.gameMode).toBe('stairs');
+    expect(store().lobby?.gameMode).toBe('points');
 
     store().setGameMode('classic');
     await flush();
@@ -220,7 +220,7 @@ describe('joining a room through the store', () => {
 
     expect(store().screen).toBe('game');
     expect(store().publicState?.phase).toBe('playing');
-    expect(store().hand).toHaveLength(8);
+    expect(store().hand).toHaveLength(7);
     // Only my own cards ever arrive.
     expect(store().publicState?.players.every((player) => 'cardCount' in player)).toBe(true);
   });
@@ -456,7 +456,7 @@ describe('preferences and navigation', () => {
     expect(() => {
       store().playCard('x');
       store().drawCard();
-      store().closeTaki();
+      store().passTurn();
       store().votePlayAgain(true);
       store().startGame();
       store().setMaxPlayers(4);

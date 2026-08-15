@@ -8,7 +8,7 @@ beforeEach(resetStore);
 describe('landing screen', () => {
   it('renders the wordmark and the two entry points', () => {
     renderApp();
-    expect(screen.getByRole('heading', { level: 1 })).toHaveAccessibleName('סופר טאקי');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveAccessibleName('אונו');
     expect(screen.getByRole('button', { name: 'פתיחת משחק' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'הצטרפות למשחק' })).toBeInTheDocument();
   });

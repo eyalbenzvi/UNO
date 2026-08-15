@@ -135,12 +135,12 @@ describe('the flight layer, given a platform that animates', () => {
     renderApp();
     act(() => {
       setState({
-        beat: { seq: 1, events: [{ type: 'drawStacked', playerId: GUEST_ID, total: 8 }] },
+        beat: { seq: 1, events: [{ type: 'challengeOpened', playerId: 'pl_other', targetId: GUEST_ID }] },
       });
     });
     const marks = document.querySelectorAll('.flight-layer__pulse');
     expect(marks).toHaveLength(1);
-    // Intensity steps with the stake: eight cards owed is not two.
+    // The threat is felt at the seat that has to answer it.
     expect(marks[0]).toHaveAttribute('data-intensity', '2');
 
     act(() => {

@@ -145,10 +145,11 @@ describe('dictionaries', () => {
   });
 
   it('carries the product name, and the same Latin wordmark in both languages', () => {
-    expect(en['app.title']).toBe('Super Taki');
-    expect(he['app.title']).toBe('סופר טאקי');
+    expect(en['app.title']).toBe('UNO');
+    expect(he['app.title']).toBe('אונו');
+    // The wordmark is Latin in both languages, as it is on the box itself.
     for (const dictionary of [en, he]) {
-      expect(`${dictionary['app.titleSuper']} ${dictionary['app.titleMain']}`).toBe('SUPER TAKI');
+      expect(dictionary['app.titleMain']).toBe('UNO');
     }
   });
 });

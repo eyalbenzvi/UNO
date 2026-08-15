@@ -2719,9 +2719,24 @@ export class GameRoom {
     if (size >= hand.length) {
       return;
     }
+    /*
+     * The catch window is stamped with the hand, not separately from it.
+     *
+     * This seam writes a hand directly rather than playing cards, so nothing runs
+     * the engine's own bookkeeping — and a seat left on one card with no stamp is
+     * one the room correctly refuses every catch against, which made this seam
+     * produce a state no real round can reach.
+     */
+    const exposed = { ...game.unoExposed };
+    if (size === 1 && !game.declaredUno.includes(playerId)) {
+      exposed[playerId] = game.turnSeq;
+    } else {
+      delete exposed[playerId];
+    }
     this.mutateForTests({
       hands: { ...game.hands, [playerId]: hand.slice(0, size) },
       drawPile: [...game.drawPile, ...hand.slice(size)],
+      unoExposed: exposed,
     });
   }
 

@@ -1012,3 +1012,20 @@
     gap: var(--space-2);
   }
 }
+
+/*
+ * The end of a match, above the running score it was decided by.
+ *
+ * A row rather than a callout: it belongs to the scoreboard it is explaining, and
+ * a second boxed notice on a screen that already has the round's result would be
+ * two announcements competing for the same moment.
+ */
+.over__match {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  font-weight: 700;
+  color: var(--color-success-ink, var(--color-ink));
+}

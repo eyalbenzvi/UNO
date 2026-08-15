@@ -365,6 +365,17 @@ export const lobbySnapshotSchema = z.object({
    * know, not only the seat that set it.
    */
   standInEnabled: z.boolean(),
+  /**
+   * The score a points match is played to, and who has reached it.
+   *
+   * Both on the wire because the end of a *match* is a fact about the table that
+   * every screen has to be able to render — otherwise the round-over screen has no
+   * way to tell "play another" from "that was the game". Absent entirely in a
+   * classic match rather than sent as nulls, so a screen cannot draw a scoreboard
+   * for a table that is not keeping one.
+   */
+  targetScore: z.number().int().min(1).max(100_000).optional(),
+  matchWinnerId: playerIdSchema.nullable().optional(),
 });
 
 export type LobbySnapshot = z.infer<typeof lobbySnapshotSchema>;
