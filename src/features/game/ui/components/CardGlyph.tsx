@@ -11,13 +11,12 @@ import { digit } from '../../../../lib/blockAlphabet.ts';
  * Each one is a solid object: an outline drawn in a 100×100 box, which
  * `blockGeometry` extrudes down and to the left into a bright front face with its
  * own side and bottom walls, every edge outlined. Symbols made of several
- * pieces — a numeral and the plus beside it, the four letters of TAKI — are
+ * pieces — the plus and the numeral of a "+2", the two arrows of a Reverse — are
  * given as separate parts so each is a solid in its own right and the pieces
  * overlap the way real blocks would.
  *
- * The one exception is the Wild, whose cubes are seen straight on in isometric
- * rather than leaning, exactly as the four-colour mark is printed; those are drawn
- * face by face here.
+ * The one exception is the Wild, whose four-colour mark is one flat object cut
+ * into quarters rather than a solid; it is drawn face by face here.
  */
 
 const BOX: Box = { x: 3, y: 3, w: 94, h: 94 };
@@ -73,23 +72,30 @@ const BAR: readonly Shape[] = [
   },
 ];
 
-/** A block arrow pointing right; the pair below is this one and its opposite. */
+/**
+ * A block arrow pointing down; the pair below is this one and its opposite.
+ *
+ * Vertical rather than horizontal, which is how the Reverse is printed: two
+ * arrows running up and down side by side. A horizontal pair — which is what
+ * this was, inherited — reads as "pass it along" rather than "turn the table
+ * round", and that is the one thing the card must not be mistaken for.
+ */
 const ARROW: readonly Shape[] = [
   {
     outer: [
-      [6, 24],
-      [54, 24],
-      [54, 8],
-      [94, 34],
-      [54, 60],
-      [54, 44],
-      [6, 44],
+      [24, 6],
+      [24, 54],
+      [8, 54],
+      [34, 94],
+      [60, 54],
+      [44, 54],
+      [44, 6],
     ],
   },
 ];
 
-/** Two arrows head to tail, the Change Direction mark. */
-const ARROWS: readonly Shape[] = [...ARROW, ...turn(ARROW, 50, 54)];
+/** Two arrows side by side, pointing opposite ways: the Reverse mark. */
+const ARROWS: readonly Shape[] = [...ARROW, ...turn(ARROW, 54, 50)];
 
 /* Compositions --------------------------------------------------------------- */
 
@@ -101,76 +107,74 @@ function scaleShapes(shapes: readonly Shape[], factor: number, dx: number, dy: n
   }));
 }
 
-/** A numeral with the small cross that marks a take-cards card. */
-function counted(value: number, numeralSlot?: number): Part[] {
+/**
+ * A take-cards card's mark: "+2", not "2⁺".
+ *
+ * The plus comes *first*, to the left of the numeral and centred on its body,
+ * at very nearly the numeral's own stroke weight — the mark is an arithmetic
+ * instruction, "take two more", and that is the whole content of the card. The
+ * deck this game was built from notates the same idea the other way round, as a
+ * numeral with a small raised cross after it, and inheriting that layout made
+ * every take-cards card here read as a power rather than a sum.
+ *
+ * `PLUS` is a fraction of the numeral's 76-unit body, chosen so the cross arms
+ * come out at about the numeral's stroke weight rather than markedly thinner;
+ * `GAP` is the smallest space at which the two solids' extruded walls do not
+ * touch. Paint order needs no help: the drawing leans down and to the left, and
+ * `buildSolids` sorts on that axis, so the numeral correctly laps over the plus.
+ */
+function counted(value: number): Part[] {
+  const PLUS = 46;
+  const GAP = 10;
   return [
-    {
-      shapes: scaleShapes(digit(value), 1, 0, 22),
-      ...(numeralSlot === undefined ? {} : { slot: numeralSlot }),
-    },
-    { shapes: scaleShapes(CROSS, 0.36, 62, 0), slot: numeralSlot === undefined ? undefined : 0 },
+    { shapes: scaleShapes(CROSS, PLUS / 100, 0, (76 - PLUS) / 2) },
+    { shapes: scaleShapes(digit(value), 1, PLUS + GAP, 0) },
   ];
 }
 
 /* The Wild -------------------------------------------------------------- */
 
 /**
- * Half-width, half-height and wall height of one cube, and the step between
- * cubes. The step is wider than the cube, so the four stand apart instead of
- * fusing into one block with four coloured lids — the printed card floats them
- * the same way, and it is the only way each cube keeps all three of its faces.
+ * The Wild's mark: one tilted oval cut into four coloured quarters.
+ *
+ * *One* object, four colours, which is the whole message — this single card is
+ * every colour at once. It was four separate cubes standing apart on a floor,
+ * inherited from the deck this was built from, and four separate objects in four
+ * colours read as a set of blocks rather than as a choice of colour.
+ *
+ * Drawn face by face rather than extruded: the quarters meet along shared edges,
+ * and giving each its own walls would put a lit side wall down the middle of a
+ * shape that is meant to be continuous.
  */
-const CUBE = { w: 19, h: 11, d: 21, stepX: 28.5, stepY: 16.5 };
+const WHEEL = { cx: 50, cy: 50, rx: 44, ry: 34, tilt: -18 };
 
-/**
- * One cube: a rhombus lid over a left and a right wall. It borrows the same
- * three tones the extruded symbols use — face, side, bottom — so a cube and a
- * numeral look like they are made of the same stuff.
- */
-function CubeBlock({
-  x,
-  y,
-  slot,
-}: {
-  readonly x: number;
-  readonly y: number;
-  readonly slot: number;
-}): ReactNode {
-  const { w, h, d } = CUBE;
-  return (
-    <g className={`glyph__slot--${slot}`} transform={`translate(${x} ${y})`}>
-      <path className="glyph__wall glyph__wall--mid" d={`M${-w} 0 0 ${h} 0 ${h + d} ${-w} ${d}z`} />
-      <path className="glyph__wall glyph__wall--deep" d={`M${w} 0 ${w} ${d} 0 ${h + d} 0 ${h}z`} />
-      <path className="glyph__face" d={`M0 ${-h} ${w} 0 0 ${h} ${-w} 0z`} />
-    </g>
-  );
-}
-
-/**
- * Four cubes on a two-by-two floor, one suit each, painted back to front the
- * way an isometric stack has to be.
- */
-function CubeStack(): ReactNode {
-  const { stepX, stepY } = CUBE;
-  // Floor cell (i, j), and the suit standing on it. Painted in order of i + j,
-  // which for an isometric floor is back to front.
-  const cells: ReadonlyArray<readonly [number, number, number]> = [
-    [0, 0, 0],
-    [1, 0, 1],
-    [0, 1, 3],
-    [1, 1, 2],
+function ColorWheel(): ReactNode {
+  const { cx, cy, rx, ry, tilt } = WHEEL;
+  // Quarter, and the suit in it. Angles run clockwise from three o'clock, so
+  // these are right, bottom, left, top — red, yellow, green, blue by CARD_COLORS.
+  const wedges: ReadonlyArray<readonly [number, number, number]> = [
+    [-45, 45, 0],
+    [45, 135, 1],
+    [135, 225, 2],
+    [225, 315, 3],
   ];
   return (
-    <g transform="translate(50 23)">
-      {cells.map(([i, j, slot]) => (
-        <CubeBlock key={`${i}-${j}`} x={(i - j) * stepX} y={(i + j) * stepY} slot={slot} />
+    <g transform={`rotate(${tilt} ${cx} ${cy})`}>
+      {wedges.map(([from, to, slot]) => (
+        <path
+          key={slot}
+          className={`glyph__face glyph__slot--${slot}`}
+          d={`M${cx} ${cy}L${arc(cx, cy, rx, ry, from, to, 10)
+            .map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`)
+            .join('L')}z`}
+        />
       ))}
     </g>
   );
 }
 
-/** The corner index for Change Colour: the four suits, small enough to read. */
-function CubeIndex(): ReactNode {
+/** The corner index for the Wild: the same four suits, small enough to read. */
+function WildIndex(): ReactNode {
   const quarters: ReadonlyArray<readonly [string, number]> = [
     ['M50 6 94 50 50 50z', 0],
     ['M94 50 50 94 50 50z', 1],
@@ -208,27 +212,24 @@ function drawingFor(card: Card): Drawing {
     case 'wildDrawFour':
       return { parts: counted(4), depth: SHALLOW };
     default:
-      // The Wild is drawn as cubes rather than an extruded outline, and is taken
-      // before this function is reached.
+      // The Wild is a flat quartered oval rather than an extruded outline, and is
+      // taken before this function is reached.
       return { parts: [{ shapes: CROSS }] };
   }
 }
 
 /**
- * Corner indices are a few millimetres across. The full drawing does not
- * survive that, so the busiest symbols show a stand-in there — a single T for
- * TAKI, the four suits as a quartered diamond for Change Colour — the way the
- * printed deck shrinks its own indices down to a mark.
+ * Corner indices are a few millimetres across, and the full drawing does not
+ * always survive that. This is where a symbol too busy to shrink shows a
+ * stand-in instead — the way the printed deck reduces its own indices to a mark.
+ *
+ * Nothing needs one at present: the busiest symbol left is a plus beside a
+ * numeral, which survives. Kept as a seam because the corner index is the one
+ * place where a symbol has to be *recognised* rather than read, and the next card
+ * added to the deck may well need one. The Wild has its own stand-in, taken
+ * before this function is reached.
  */
 function indexFor(card: Card): Drawing | null {
-  /*
-   * Nothing needs a stand-in any more. The busiest symbol in this deck is a
-   * numeral beside a small cross, which survives being drawn a few millimetres
-   * across; the deck this game was built from had a four-letter wordmark on two
-   * cards, which did not. Kept as a seam because the corner index is the one place
-   * where a symbol has to be *recognised* rather than read, and the next card added
-   * to the deck may well need one.
-   */
   void card;
   return null;
 }
@@ -267,7 +268,7 @@ function CardGlyphInner({ card, flat = false }: CardGlyphProps): ReactNode {
   if (card.kind === 'wild') {
     return (
       <svg className="glyph" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
-        {flat ? <CubeIndex /> : <CubeStack />}
+        {flat ? <WildIndex /> : <ColorWheel />}
       </svg>
     );
   }

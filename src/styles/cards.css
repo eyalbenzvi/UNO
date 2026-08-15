@@ -1,14 +1,23 @@
 /*
  * Card visuals — CSS and inline SVG only, no external assets.
  *
- * A card is white stock with its symbol drawn on it as a chunky coloured block,
- * the way the printed deck looks: outlined, extruded, and repeated small in all
- * four corners. Information is never conveyed by colour alone — every card also
- * shows a distinct shape, and carries an explicit accessible name.
+ * A card is a solid suit-coloured body inside a white printed margin, with a
+ * tilted white oval across the middle carrying the symbol, and the symbol again
+ * small and white in the corners. That construction — coloured stock, white
+ * oval — is most of what makes a card recognisable at a glance across a table,
+ * and it is the half of the design that has nothing to do with the artwork
+ * drawn on it. Both wilds are black instead, which is how a card says it belongs
+ * to no colour.
+ *
+ * The symbol itself is a chunky extruded block, outlined on every edge. Information
+ * is never conveyed by colour alone — every card also shows a distinct shape, and
+ * carries an explicit accessible name.
  */
 
 .card {
   --card-width: var(--card-w-md);
+  /* The body. Overridden per suit below; white is the fallback. */
+  --stock: var(--card-face);
   /* Suit colours, overridden per card below. */
   --glyph: var(--card-outline);
   --glyph-mid: var(--card-label);
@@ -16,11 +25,14 @@
 
   position: relative;
   inline-size: var(--card-width);
-  aspect-ratio: 2 / 3;
+  /* 56 × 88 mm, the printed proportion. */
+  aspect-ratio: 56 / 88;
   border-radius: calc(var(--card-width) * 0.11);
-  background: var(--card-face);
+  background: var(--stock);
+  /* The white margin a printed card keeps between its ink and the cut edge. */
+  border: calc(var(--card-width) * 0.045) solid var(--card-face);
   color: var(--card-label);
-  /* A hairline keeps white stock visible against a light table. */
+  /* A hairline keeps the white margin visible against a light table. */
   box-shadow:
     0 0 0 1px rgb(0 0 0 / 0.3),
     var(--shadow-card);
@@ -61,24 +73,46 @@
   --glyph-deep: var(--card-yellow-deep);
 }
 
-/*
- * A colourless card is white like the rest; what marks it out is its drawing. The
- * printed deck puts no band or border on them either.
- *
- * Struck in a colour that belongs to no suit, so nobody reads a Wild Draw Four's
- * numeral as a yellow card. The plain Wild is the exception and needs no rule of
- * its own: it means *every* colour, so each of its four cubes claims a suit
- * through `glyph__slot--N` and this variable never reaches them.
- */
-.card--wild {
-  --glyph: var(--card-violet-face);
-  --glyph-mid: var(--card-violet-mid);
-  --glyph-deep: var(--card-violet-deep);
+/* The four suits as card stock. */
+.card--red {
+  --stock: var(--card-red-solid);
+}
+.card--blue {
+  --stock: var(--card-blue-solid);
+}
+.card--green {
+  --stock: var(--card-green-solid);
+}
+.card--yellow {
+  --stock: var(--card-yellow-solid);
 }
 
 /*
- * The back: a fine red-and-blue lattice inside a white margin, the way a printed
- * back keeps its pattern clear of the cut edge.
+ * A card belonging to no colour is black. That is not decoration: black is the
+ * only thing that separates the two wilds from the four suits at a glance, and a
+ * fifth ink — this was violet, inherited — reads as a fifth suit to anybody who
+ * has not been told otherwise.
+ *
+ * The Wild Draw Four's "+4" is struck in white on it. The plain Wild needs no
+ * rule of its own: it means *every* colour, so each quarter of its oval claims a
+ * suit through `glyph__slot--N` and these variables never reach it.
+ */
+.card--wild {
+  --stock: #16161a;
+  --glyph: #ffffff;
+  --glyph-mid: #d3d3da;
+  --glyph-deep: #a4a4ae;
+  /* A shade under the stock, so the internal edges still separate the faces. */
+  --card-outline: #08080b;
+}
+
+/*
+ * The back: a fine lattice on a black field inside a white margin, the way a
+ * printed back keeps its pattern clear of the cut edge.
+ *
+ * Black because the printed back is, and because it makes the face-down pile read
+ * as one object beside the coloured faces. The pattern is this deck's own — the
+ * mark a real back carries is somebody's trademark and is not drawn here.
  */
 .card--back {
   --weave: calc(var(--card-width) * 0.07);
@@ -97,7 +131,7 @@
         transparent var(--thread) var(--weave)
       )
       padding-box,
-    var(--card-face) padding-box;
+    #16161a padding-box;
   border: calc(var(--card-width) * 0.055) solid var(--card-face);
   padding: 0;
 }
@@ -139,19 +173,73 @@
 }
 
 .card__glyph {
-  inline-size: calc(var(--card-width) * 0.7);
-  block-size: calc(var(--card-width) * 0.7);
+  position: relative;
+  inline-size: calc(var(--card-width) * 0.66);
+  block-size: calc(var(--card-width) * 0.66);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 /*
+ * The oval the centre symbol sits on: white, wider than it is tall, and tilted.
+ * It is drawn behind the glyph rather than around it so the symbol keeps the
+ * whole of its own box — the oval is bigger than the glyph in both directions,
+ * which is what stops a wide "+4" running off the end of it.
+ *
+ * Sized against the card rather than against the glyph's box, because the box is
+ * square and the oval is not.
+ */
+.card__glyph::before {
+  content: '';
+  position: absolute;
+  inline-size: calc(var(--card-width) * 1.02);
+  block-size: calc(var(--card-width) * 0.88);
+  border-radius: 50%;
+  background: var(--card-face);
+  transform: rotate(-20deg);
+  z-index: 0;
+}
+
+.card__glyph .glyph {
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * Both wilds carry their mark straight on the black stock, as the printed ones
+ * do — a white oval there would undo the only thing that says "no colour".
+ */
+.card--wild .card__glyph::before {
+  display: none;
+}
+
+/*
+ * The Wild's four-colour oval is drawn flat rather than extruded, so it carries
+ * none of the visual weight an extruded numeral gets for free and looks small at
+ * the size that suits one. Given the room the missing white oval leaves.
+ */
+.card[data-kind='wild'] .card__glyph {
+  inline-size: calc(var(--card-width) * 0.82);
+  block-size: calc(var(--card-width) * 0.82);
+}
+
+/*
  * The corner index, in all four corners with the bottom pair turned over, the
  * way a printed card is laid out. In a fanned hand the leading corner is often
  * all that is visible of a card, which is what makes four of them worth drawing.
+ *
+ * White, printed straight on the coloured body with no oval under it. The suit is
+ * already the whole background here, so an index in the suit colour would be a
+ * second statement of the one thing that needs no repeating — and unreadable
+ * besides. The Wild's index sets its own four colours through `glyph__slot--N`,
+ * which are more specific than these and correctly survive.
  */
 .card__corner {
+  --glyph: var(--card-face);
+  --glyph-mid: var(--card-face);
+  --glyph-deep: var(--card-face);
+
   position: absolute;
   inline-size: calc(var(--card-width) * 0.2);
   block-size: calc(var(--card-width) * 0.2);

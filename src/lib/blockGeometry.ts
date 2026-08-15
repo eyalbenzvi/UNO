@@ -1,7 +1,7 @@
 /**
  * Block art: the drawing engine behind the card symbols and the wordmark.
  *
- * Every symbol in the printed Taki deck is a solid object seen from slightly
+ * Every symbol on these cards is drawn as a solid object seen from slightly
  * above and to the right — a bright front face, and the side and bottom faces
  * of the same object in darker shades of the same hue, with a black line on
  * *every* edge, including the internal ones where the front face meets a side.

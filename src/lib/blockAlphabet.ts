@@ -255,8 +255,40 @@ const DIGITS: Record<number, readonly Shape[]> = {
   ],
 };
 
-/** A 9 is a 6 stood on its head, as it is in most geometric alphabets. */
-DIGITS[9] = turn(DIGITS[6]!, 27.5, 38);
+/**
+ * The bar under a 6 and a 9.
+ *
+ * A 9 here is a 6 stood on its head — geometrically identical to one, not merely
+ * similar — and a card prints its index at both ends with one of them turned
+ * over. Without a bar, the bottom index of a 6 *is* a 9, which in a fanned hand
+ * where only a corner shows is a card read as the wrong card. A printed deck
+ * solves it the same way.
+ *
+ * Short, centred, and set well clear of the baseline — the numeral is extruded
+ * about ten units down and to the left, so a bar any closer is swallowed by the
+ * digit's own bottom wall and reads as a foot rather than a rule under it.
+ *
+ * It sits below the baseline, which grows the drawn body from 76 units to 100 and
+ * so makes these two numerals a little smaller than their neighbours once each is
+ * fitted to the same box. That is the trade, and it is the one the printed card
+ * makes too.
+ */
+const UNDERBAR: Shape = {
+  outer: [
+    [2, 92],
+    [53, 92],
+    [53, 100],
+    [2, 100],
+  ],
+};
+
+/*
+ * The 9 is the *bare* 6 turned over, and then underlined in its own right. Turning
+ * an already-barred 6 would put the bar over the 9's head, which is an overline and
+ * says nothing; both numerals are underlined on a printed card.
+ */
+DIGITS[9] = [...turn(DIGITS[6]!, 27.5, 38), UNDERBAR];
+DIGITS[6] = [...DIGITS[6]!, UNDERBAR];
 
 export function digit(value: number): readonly Shape[] {
   return DIGITS[value] ?? DIGITS[1]!;

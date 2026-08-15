@@ -5,8 +5,8 @@ import { letter, setAt, widthAt } from '../lib/blockAlphabet.ts';
 import { useT } from './useT.ts';
 
 /**
- * The Super Taki wordmark: SUPER small and black over the left shoulder of
- * TAKI, whose letters are solid blocks in the four suit colours.
+ * The wordmark: UNO, whose three letters are solid blocks in three of the four
+ * suit colours.
  *
  * Drawn by the same engine as the card symbols, from the same alphabet, so the
  * mark and the deck are unmistakably the same object — bright faces, two tones

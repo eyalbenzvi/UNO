@@ -11,8 +11,8 @@
 :root {
   /*
    * The four suit colours, identical in both themes so cards stay
-   * recognisable. Cards are printed objects: the face is white in either
-   * theme, and the colour is carried by the symbol drawn on it.
+   * recognisable. Cards are printed objects: the body carries the colour in
+   * either theme, and only the table behind them follows the theme.
    */
   --card-red: #e4002b;
   --card-blue: #0057b8;
@@ -53,18 +53,10 @@
   --card-yellow-deep: #a4610b;
 
   /*
-   * Two more inks, as vivid as the suits but not among them. The King, the +3
-   * and the +3 Breaker belong to no suit, and violet and orange say that
-   * without anyone mistaking one for a red or a yellow card.
+   * The white a card is trimmed and ovalled in, and the outline every symbol is
+   * drawn with. There is no fifth ink: a card that belongs to no suit is black,
+   * which is a statement about colour rather than another colour.
    */
-  --card-violet-face: #9b45d6;
-  --card-violet-mid: #6d24a3;
-  --card-violet-deep: #481570;
-  --card-orange-face: #f5871f;
-  --card-orange-mid: #bd5c05;
-  --card-orange-deep: #833d03;
-
-  /* Card stock, and the outline every symbol is drawn with. */
   --card-face: #ffffff;
   --card-outline: #1b1b21;
   --card-label: #35353d;

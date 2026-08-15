@@ -19,7 +19,7 @@ function colorClass(card: Card): string {
   return color ? `card--${color}` : 'card--wild';
 }
 
-/** Lets the stylesheet give an individual card kind its own colour, e.g. a gold King. */
+/** Lets the stylesheet give an individual card kind its own treatment. */
 function kindAttrs(card: Card): { readonly 'data-kind': string } {
   return { 'data-kind': card.kind };
 }
