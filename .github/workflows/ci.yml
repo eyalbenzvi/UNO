@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  # Every commit is still checked exactly once, and only once. Pushing to a branch
+  # used to run this workflow *and* run it again the moment a pull request opened on
+  # the same commit — two identical sets of four jobs, the second of which told
+  # nobody anything the first had not. That is eight jobs where four will do, and on
+  # a day when runners were scarce the surplus is what sat queued until it was
+  # cancelled. Branch work is covered by the pull request; main is covered here.
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to keep queues short.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Lint, typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit and component tests with coverage
+        run: npm run test:coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage
+          retention-days: 7
+
+  room:
+    name: Room worker - typecheck, tests, smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The app's too, and this is not belt-and-braces.
+      #
+      # The worker compiles `../src/features/game/**` by relative import, and those
+      # files resolve `zod` the way Node does: upward from the importing file. From
+      # `src/features/game/network/` that walk reaches the repository root and never
+      # passes `worker/node_modules`, so the worker having `zod` in its own manifest
+      # is irrelevant — `tsc` and esbuild both need the root install. It works on a
+      # developer's machine only because the root install is always there, which is
+      # exactly why this was missed until CI ran it.
+      - name: Install the app's dependencies
+        run: npm ci
+        working-directory: ${{ github.workspace }}
+
+      # The worker typechecks the engine, the robots and the wire protocol as well
+      # as its own code — they are the app's, borrowed by relative import — so a
+      # rules change that breaks the room fails here as well as in the app's job.
+      - name: Typecheck and unit tests
+        run: npm run verify
+
+      # A whole round over real WebSockets against real workerd: create, collision,
+      # join, authorisation, deal, privacy, replay dedup, a drop and resume, a winner.
+      - name: Smoke test against workerd
+        run: npm run smoke
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Advisory: production dependencies must be clean; dev-only advisories are
+      # reported but do not fail the build.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Audit all dependencies (informational)
+        run: npm audit || true
+
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The e2e suite runs against the real room under `wrangler dev`, so the
+      # worker's own dependencies have to be here too.
+      - name: Install the worker's dependencies
+        run: npm ci
+        working-directory: worker
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      # Built with the local worker's URL, which is baked into both the bundle and
+      # the page's `connect-src`. A preview built without it has no room to talk to.
+      - name: Build against the local room worker
+        run: npm run build:e2e
+
+      - name: Run Playwright tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 7

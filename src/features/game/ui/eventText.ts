@@ -1,0 +1,107 @@
+import type { Translator } from '../../../i18n/index.ts';
+import type { GameEvent } from '../engine/state.ts';
+import { colorName, describeCard } from './cardText.ts';
+
+/**
+ * Turns an engine event into one localised log line.
+ *
+ * Only public information is ever rendered: a card is named only when it is
+ * already face up on the discard pile.
+ */
+export function describeEvent(t: Translator, event: GameEvent, nameOf: (playerId: string) => string): string {
+  switch (event.type) {
+    case 'gameStarted':
+      return t('event.gameStarted', { color: colorName(t, event.activeColor) });
+    case 'cardPlayed':
+      return t('event.cardPlayed', {
+        name: nameOf(event.playerId),
+        card: describeCard(t, event.card),
+      });
+    case 'cardDrawn':
+      return event.count === 1
+        ? t('event.cardDrawn', { name: nameOf(event.playerId) })
+        : t('event.cardDrawnMany', { name: nameOf(event.playerId), count: event.count });
+    case 'takiOpened':
+      return t(event.superTaki ? 'event.takiOpenedSuper' : 'event.takiOpened', {
+        name: nameOf(event.playerId),
+        color: colorName(t, event.color),
+      });
+    case 'takiClosed':
+      return t('event.takiClosed', { name: nameOf(event.playerId), count: event.cardsPlayed });
+    case 'colorChosen':
+      return t('event.colorChosen', {
+        name: nameOf(event.playerId),
+        color: colorName(t, event.color),
+      });
+    case 'playerSkipped':
+      return t('event.playerSkipped', { name: nameOf(event.playerId) });
+    case 'drawStacked':
+      return t('event.drawStacked', { name: nameOf(event.playerId), total: event.total });
+    case 'drawRunCancelled':
+      return t(event.cancelled === 1 ? 'event.drawRunCancelled.one' : 'event.drawRunCancelled.other', {
+        name: nameOf(event.playerId),
+        count: event.cancelled,
+      });
+    case 'plusThreePlayed':
+      return t('event.plusThreePlayed', { name: nameOf(event.playerId) });
+    case 'plusThreeBroken':
+      return t('event.plusThreeBroken', {
+        name: nameOf(event.playerId),
+        target: nameOf(event.targetId),
+      });
+    case 'lastCardDeclared':
+      return t('event.lastCardDeclared', { name: nameOf(event.playerId) });
+    case 'lastCardCaught':
+      // Both halves of the count take names too, so the plural is picked here
+      // rather than through `countLabel`, which only ever passes the number.
+      return t(event.penalty === 1 ? 'event.lastCardCaught.one' : 'event.lastCardCaught.other', {
+        name: nameOf(event.playerId),
+        by: nameOf(event.caughtById),
+        count: event.penalty,
+      });
+    case 'breakerSpent':
+      return t(event.penalty === 1 ? 'event.breakerSpent.one' : 'event.breakerSpent.other', {
+        name: nameOf(event.playerId),
+        count: event.penalty,
+      });
+    case 'plusRefilled':
+      return t('event.plusRefilled', { name: nameOf(event.playerId) });
+    case 'directionChanged':
+      return t(event.direction === 1 ? 'event.directionChangedCw' : 'event.directionChangedCcw');
+    case 'extraTurn':
+      return t('event.extraTurn', { name: nameOf(event.playerId) });
+    case 'turnChanged':
+      return t('event.turnChanged', { name: nameOf(event.playerId) });
+    case 'drawPileRecycled':
+      return t('event.drawPileRecycled', { count: event.count });
+    case 'drawPileExhausted':
+      return t('event.drawPileExhausted');
+    case 'playerWon':
+      return t('event.playerWon', { name: nameOf(event.playerId) });
+    case 'stairsAdvanced':
+      /*
+       * The step, and the hand it bought. `dealt` is normally the next step's size,
+       * and is smaller only when the pile could not cover it — which is worth saying
+       * plainly rather than quietly printing a number that does not match the rule.
+       */
+      return t(event.dealt === 1 ? 'event.stairsAdvanced.one' : 'event.stairsAdvanced.other', {
+        name: nameOf(event.playerId),
+        stage: event.stage,
+        count: event.dealt,
+      });
+    case 'turnSkipped':
+      // The draw count matters: a passed turn costs the one card the turn itself
+      // would have cost, or the whole run when the seat owed one, and a returning
+      // player deserves to see which. Nought only when the pile had nothing left.
+      return event.drew > 0
+        ? t(event.drew === 1 ? 'event.turnSkippedDrew.one' : 'event.turnSkippedDrew.other', {
+            name: nameOf(event.playerId),
+            count: event.drew,
+          })
+        : t('event.turnSkipped', { name: nameOf(event.playerId) });
+    case 'playerLeft':
+      return t('event.playerLeft', { name: nameOf(event.playerId) });
+    case 'roundAbandoned':
+      return t('event.roundAbandoned');
+  }
+}

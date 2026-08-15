@@ -1,0 +1,336 @@
+/**
+ * The room's durable state, and the one interface it is reached through.
+ *
+ * Two records, each a single JSON blob validated on the way in *and* on the way
+ * out: the room (`RoomRecord` — seats, phase, votes, the clocks the host used to
+ * keep in memory) and the game (`GameState` — hands, deck order, the RNG's own
+ * state). Nothing else survives a hibernation, and nothing else needs to.
+ *
+ * Why blobs rather than columns: the room record is at most six seats and is
+ * always read and written whole — no query ever wants one seat — and it needs a
+ * schema for validate-on-read regardless, which is a better description of the
+ * shape than a table would be. The game state has to be a blob whatever we do,
+ * because its *order* is the state: shuffle a draw pile into rows and you have
+ * thrown the game away.
+ *
+ * `RoomStore` is deliberately three synchronous methods over strings. That is what
+ * lets the whole room run in plain Node against a `Map` — see `worker/test/` — and
+ * it is the same trick the old relay's `ClaimStore` used, extended from claims to
+ * the entire game.
+ */
+
+import { z } from 'zod';
+import { cardSchema } from '../../src/features/game/network/protocol.ts';
+import type { GameState } from '../../src/features/game/engine/state.ts';
+
+/** What the room needs from durable storage. Synchronous, string in, string out. */
+export interface RoomStore {
+  get(key: string): string | undefined;
+  put(key: string, value: string): void;
+  delete(key: string): void;
+}
+
+const ROOM_KEY = 'room';
+const GAME_KEY = 'game';
+
+const playerId = z.string().min(1).max(64);
+const resumeToken = z.string().min(8).max(64);
+
+/**
+ * One seat, as the room remembers it between messages.
+ *
+ * This is the old `Seat` interface minus everything that was an inference and plus
+ * everything that used to live only in the host's memory. Gone: `health`, `peerId`
+ * and the whole `ProbeTracker` — a seat is present exactly when the room is holding
+ * an open socket for it, which is a fact rather than a running tally of unanswered
+ * pings. Added: `absentSince` and the intent clocks now persist, so a room that
+ * hibernates mid-round does not come back having forgiven everybody everything.
+ */
+const seatSchema = z.object({
+  playerId,
+  name: z.string().min(1).max(32),
+  seat: z.number().int().min(0).max(5),
+  resumeToken,
+  /** True once this seat has left the round for good; its cards are frozen out of play. */
+  left: z.boolean(),
+  /** A robot seat: no device behind it, ever. None of the absence machinery applies. */
+  bot: z.boolean(),
+  /** When this seat's last socket closed, or `null` while one is open. */
+  absentSince: z.number().int().min(0).nullable(),
+  /**
+   * When this seat last asked for something a person has to ask for.
+   *
+   * Deliberately not "when we last heard from it". A phone in a pocket keeps a
+   * socket open perfectly, so liveness proves nothing about whether anybody is
+   * looking — and keying the idle stand-in on a clock that traffic resets would have
+   * released the robot every time a frame arrived.
+   */
+  lastIntentAt: z.number().int().min(0).nullable(),
+  /** When this seat last *tried* to come back — far better evidence than silence. */
+  lastResumeAttemptAt: z.number().int().min(0).nullable(),
+  /** Set while a robot is playing this human's seat, and why. */
+  standIn: z.enum(['absent', 'idle']).nullable(),
+  /** Which kind of stand-in the table has stopped on this seat, so it does not restart. */
+  standInDeclined: z.enum(['absent', 'idle']).nullable(),
+  /** Whether a robot played this seat at any point in the current round. */
+  robotPlayedThisRound: z.boolean(),
+  /** When the current stand-in began; the robot's stall deadline runs from here. */
+  standInSince: z.number().int().min(0).nullable(),
+  /** Whether this seat has already been skipped once without returning. */
+  skippedWhileAway: z.boolean(),
+  /** Set when the player said goodbye rather than merely going quiet. */
+  saidGoodbye: z.boolean(),
+  /**
+   * The last intent accepted from this seat, and the version it produced.
+   *
+   * On the seat rather than the connection, because a reconnect is the only case it
+   * exists for: a client that lost our answer re-sends, and applying a
+   * `catchLastCard` twice is eight cards charged for one call.
+   */
+  lastRequestId: z.string().min(1).max(64).nullable(),
+  lastRequestVersion: z.number().int().nonnegative().nullable(),
+  /**
+   * Rounds this seat has won since the room opened.
+   *
+   * On the seat rather than in a map beside the seats, because the score's lifetime
+   * *is* the seat's: every path that drops a seat — a goodbye in the lobby, a
+   * removal, a grace that ran out, the room being forgotten — takes the score with
+   * it without having to remember to. A table's running total therefore cannot
+   * outlive the table, which is the promise the room makes about everything else it
+   * holds.
+   *
+   * Defaulted, per the rule stated on `emptySince`: a record written before this
+   * field existed must reload as a table where nobody has won yet, rather than be
+   * thrown away with every credential in it.
+   */
+  wins: z.number().int().min(0).max(10_000).default(0),
+});
+
+export type SeatRecord = z.infer<typeof seatSchema>;
+
+export const roomRecordSchema = z.object({
+  roomCode: z.string().min(3).max(32),
+  /** The seat holding the lobby buttons. Not an authority — see `docs/server-game-plan.md` §2. */
+  creatorPlayerId: playerId,
+  phase: z.enum(['lobby', 'inGame', 'finished']),
+  maxPlayers: z.number().int().min(2).max(6),
+  tableLanguage: z.enum(['he', 'en']),
+  /**
+   * How the next round will be won. See `GameMode` in the engine.
+   *
+   * The table's setting, not the round's: a round in play carries its own copy in
+   * `GameState`, so changing this mid-round is impossible by construction rather
+   * than by a check somebody has to remember. Defaulted for the same reason as
+   * `emptySince`.
+   */
+  gameMode: z.enum(['classic', 'stairs']).default('classic'),
+  /**
+   * Who the table quietly leans towards, and how far. See `docs/assist.md`.
+   *
+   * The table's setting, and the round in play carries its own copy in `GameState` —
+   * the same split as `gameMode`, for the same reason. Kept here between rounds so
+   * that a room which hibernates overnight comes back still knowing which children
+   * it was being gentle with, rather than quietly becoming a fair table at the worst
+   * possible moment.
+   *
+   * Defaulted per the rule stated on `emptySince`: an older record must reload as a
+   * table that leans towards nobody, rather than be thrown away with every seat in
+   * it.
+   */
+  assist: z
+    .object({
+      level: z.enum(['off', 'light', 'medium', 'strong']),
+      playerIds: z.array(playerId).max(6),
+    })
+    .default({ level: 'off', playerIds: [] }),
+  /** Highest state version this room has ever broadcast. */
+  versionFloor: z.number().int().nonnegative(),
+  /** Rounds dealt so far, so the starting seat rotates. */
+  round: z.number().int().nonnegative(),
+  standInEnabled: z.boolean(),
+  pausedBy: playerId.nullable(),
+  /** When the table started waiting for the seat on turn. */
+  waitingSince: z.number().int().min(0).nullable(),
+  /**
+   * When the last player's socket closed, or `null` while anybody is here.
+   *
+   * The room's deletion deadline is measured from this, and it is stored rather than
+   * re-derived because re-deriving it from `now` on every write meant *any* frame
+   * pushed the deletion out — including a frame from a socket the room had just
+   * refused. A mistyped room code, or anything walking the six-digit space, would keep
+   * every hand in storage indefinitely, and a mechanical six-hour deletion is the one
+   * thing the threat model offers in exchange for the room holding the cards at all.
+   *
+   * Defaulted rather than required, which is not laziness about this field but a rule
+   * about this schema: a required addition rejects every record an older build wrote,
+   * and `readRoom` treats a rejection as no room at all — so the whole table, every
+   * seat and every credential would go on the first wake after a deploy. `worker/`
+   * auto-deploys from the default branch, so that is one merge away from being real.
+   * A field added here must be `.default()`ed or `.optional()`, and a default must be
+   * the value that makes an old record behave as it did before the field existed.
+   */
+  emptySince: z.number().int().min(0).nullable().default(null),
+  playAgainVotes: z.array(playerId).max(6),
+  abandonVotes: z.array(playerId).max(6),
+  /**
+   * When each seat's hand became a single card.
+   *
+   * A clock reading, so it cannot live in `GameState`: the engine is a pure function
+   * of its inputs and a timestamp inside it would make a replayed command produce a
+   * different game. It was in the host's memory and was therefore lost on every
+   * restart, which meant a restored table either exposed somebody who had been on
+   * one card all along or protected them for ever.
+   */
+  lastCardSince: z.record(playerId, z.number().int().min(0)),
+  /**
+   * Each robot's own random stream, one seed per seat.
+   *
+   * Separate from the game's `RngState` on purpose: sharing it would make the
+   * *presence* of a robot change the deal. Per seat rather than one shared stream, so
+   * a robot's choices do not depend on how many decisions the others happened to take
+   * first — which is what makes a robot-only round replay exactly.
+   */
+  botRng: z.record(playerId, z.number().int()),
+  seats: z.array(seatSchema).max(6),
+});
+
+export type RoomRecord = z.infer<typeof roomRecordSchema>;
+
+const rngStateSchema = z.object({ seed: z.number().int() });
+
+/**
+ * The authoritative game state, as stored.
+ *
+ * Mirrors `GameState` field for field. It is a second declaration of a shape the
+ * engine already owns, and the assignment below is what stops the two from drifting:
+ * if the engine grows a field this schema does not know, it stops compiling. Worth
+ * the duplication, because this is the boundary where bytes written by a previous
+ * deployment come back — and half-parsing those is how a table reaches a state the
+ * engine has no transition out of. What it would actually do is worse than
+ * half-parsing: `z.object` *strips* what it does not know, so the field would be
+ * silently dropped from every live round on the next wake, and `applyCommand` would
+ * find `undefined` where it expected a value.
+ *
+ * It has to be an assignment with no cast to mean anything. `gameStateSchema as
+ * z.ZodType<GameState>` compiles whatever the two shapes are, which is exactly the
+ * check this claims to be and is the one way to write it that proves nothing.
+ */
+export const gameStateSchema = z.object({
+  version: z.number().int().nonnegative(),
+  phase: z.enum(['playing', 'finished']),
+  /*
+   * Defaulted, and the default is the mode the game had before there were modes: a
+   * round persisted by an older deployment reloads as the classic round it was
+   * being played as, rather than being discarded — which for a live round means
+   * every hand at the table.
+   */
+  mode: z.enum(['classic', 'stairs']).default('classic'),
+  /** Hands each seat has emptied. Empty for a round dealt before the staircase existed. */
+  stairs: z.record(playerId, z.number().int().min(0).max(8)).default({}),
+  players: z
+    .array(z.object({ id: playerId, name: z.string().min(1).max(32), left: z.boolean().optional() }))
+    .min(2)
+    .max(6),
+  /**
+   * How far this round's deal and draw pile lean towards each seat.
+   *
+   * Defaulted to nothing, which is the value that makes an older record behave as
+   * it did before the field existed — a round dealt without any lean carries on
+   * being drawn without one. Stored with the *round* rather than read back off the
+   * room on every command, so a hand dealt generously cannot be drawn into meanly
+   * because somebody opened the settings mid-round.
+   */
+  assist: z.record(playerId, z.number().int().min(0).max(3)).default({}),
+  hands: z.record(playerId, z.array(cardSchema).max(200)),
+  drawPile: z.array(cardSchema).max(200),
+  discardPile: z.array(cardSchema).max(200),
+  activeColor: z.enum(['red', 'blue', 'green', 'yellow']),
+  direction: z.union([z.literal(1), z.literal(-1)]),
+  currentPlayerIndex: z.number().int().min(0).max(5),
+  takiMode: z
+    .object({
+      color: z.enum(['red', 'blue', 'green', 'yellow']),
+      playerId,
+      cardsPlayed: z.number().int().min(1).max(200),
+      openedWithSuperTaki: z.boolean(),
+      // Defaulted for the same reason as on the wire: a round persisted before
+      // this field existed must reload rather than be thrown away.
+      takisOnly: z.boolean().default(false),
+    })
+    .nullable(),
+  pendingPlus: z.boolean(),
+  pendingDraw: z.number().int().min(0).max(200),
+  freePlay: z.boolean(),
+  plusThree: z.object({ playerId, awaiting: z.array(playerId).max(6) }).nullable(),
+  declaredLastCard: z.array(playerId).max(6),
+  rng: rngStateSchema,
+  winnerId: playerId.nullable(),
+  endReason: z.enum(['won', 'abandoned']).nullable(),
+  turnSeq: z.number().int().nonnegative(),
+  seed: z.number().int(),
+});
+
+/**
+ * Compile-time proof that the stored shape still describes the engine's.
+ *
+ * One direction only, and deliberately: what this catches is the engine gaining or
+ * changing a field that storage would silently drop on the next round trip.
+ */
+const _storedStateMatchesEngine: z.ZodType<GameState> = gameStateSchema;
+void _storedStateMatchesEngine;
+
+/** What a read found, and — when it found nothing usable — whether that was corruption. */
+export type ReadResult<T> =
+  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly reason: 'missing' | 'corrupt' };
+
+function read<T>(store: RoomStore, key: string, schema: z.ZodType<T>): ReadResult<T> {
+  const raw = store.get(key);
+  if (raw === undefined) {
+    return { ok: false, reason: 'missing' };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, reason: 'corrupt' };
+  }
+  const result = schema.safeParse(parsed);
+  return result.success ? { ok: true, value: result.data } : { ok: false, reason: 'corrupt' };
+}
+
+export function readRoom(store: RoomStore): ReadResult<RoomRecord> {
+  return read(store, ROOM_KEY, roomRecordSchema);
+}
+
+export function writeRoom(store: RoomStore, record: RoomRecord): void {
+  store.put(ROOM_KEY, JSON.stringify(record));
+}
+
+export function readGame(store: RoomStore): ReadResult<GameState> {
+  return read(store, GAME_KEY, gameStateSchema);
+}
+
+export function writeGame(store: RoomStore, state: GameState): void {
+  store.put(GAME_KEY, JSON.stringify(state));
+}
+
+export function clearGame(store: RoomStore): void {
+  store.delete(GAME_KEY);
+}
+
+/** A store backed by a plain `Map`. Used by the tests, and by nothing else. */
+export function memoryStore(
+  initial?: Map<string, string>,
+): RoomStore & { readonly map: Map<string, string> } {
+  const map = initial ?? new Map<string, string>();
+  return {
+    map,
+    get: (key) => map.get(key),
+    put: (key, value) => {
+      map.set(key, value);
+    },
+    delete: (key) => {
+      map.delete(key);
+    },
+  };
+}

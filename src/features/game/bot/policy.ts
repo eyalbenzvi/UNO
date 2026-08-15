@@ -1,0 +1,495 @@
+import { assistFor } from '../engine/assist.ts';
+import { CARD_COLORS, cardColor, type Card, type CardColor } from '../engine/cards.ts';
+import { isCardPlayable } from '../engine/rules.ts';
+import { playContextFromPublic, type PublicGameState } from '../engine/views.ts';
+/*
+ * The *wire* action type on purpose.
+ *
+ * A robot may therefore express exactly what a remote player can express, and
+ * nothing more: `skipTurn`, `leaveGame` and `abandonRound` are host-only commands
+ * and are unreachable from here by construction — the same guarantee the protocol
+ * gives a human client. Types only, so this module has no runtime dependency on
+ * the network layer.
+ */
+import type { GameAction } from '../network/protocol.ts';
+import type { BotView } from './view.ts';
+
+/**
+ * The robot's brain: one pure function of {@link BotView} plus injected randomness.
+ *
+ * No clocks, no `Math.random()`, no access to the authoritative state. That is
+ * what makes it exactly as testable as the engine, and what makes "a robot cannot
+ * see your hand" checkable rather than promised.
+ *
+ * It plays like a competent club player, not like an oracle. Every legality
+ * decision goes through the same {@link isCardPlayable} the table's own UI uses, it
+ * never reasons about cards it has not seen, it does not count the discard pile to
+ * infer anybody's hand, and it declares its own last card as fast as a person
+ * reaches the button rather than sitting on it — the pause lives in the driver, and
+ * it is a tap, not a handicap.
+ */
+
+/** Which obligation a move answers. The driver's pause depends on it. */
+export type BotMoveKind = 'breaker' | 'declare' | 'turn' | 'catch';
+
+export interface BotMove {
+  readonly action: GameAction;
+  readonly kind: BotMoveKind;
+  /** Set while the move continues an open Taki sequence, which is played briskly. */
+  readonly inSequence?: boolean;
+}
+
+/**
+ * Order in which cards are spent inside an open Taki sequence.
+ *
+ * Only the *last* card of a sequence has an effect, so the useful ones are kept
+ * for the end: numbers and further Takis go down first, and the sequence closes on
+ * the most punishing card the hand holds.
+ */
+const SEQUENCE_ORDER: Readonly<Record<Card['kind'], number>> = {
+  number: 0,
+  taki: 1,
+  direction: 2,
+  plus: 3,
+  stop: 4,
+  plusTwo: 5,
+  /*
+   * Last of all, and the record is total so the rest are listed too.
+   *
+   * A Super Taki is the one colourless card that can enter a sequence, and only
+   * while the run is still nothing but Takis — so ranking it last is what keeps
+   * it in hand: any ordinary card goes down first, which settles the run and
+   * takes the Super Taki out of the sequence for good. It is spent only when the
+   * hand has nothing else the sequence will accept, where dumping a card beats
+   * closing on one.
+   */
+  colorChange: 9,
+  superTaki: 9,
+  king: 9,
+  plusThree: 9,
+  breakPlusThree: 9,
+};
+
+function colorCounts(hand: readonly Card[]): Record<CardColor, number> {
+  const counts: Record<CardColor, number> = { red: 0, blue: 0, green: 0, yellow: 0 };
+  for (const card of hand) {
+    const color = cardColor(card);
+    if (color !== null) {
+      counts[color] += 1;
+    }
+  }
+  return counts;
+}
+
+/**
+ * The colour this hand is strongest in, or `fallback` when it holds none.
+ *
+ * Total on purpose: it names the colour for a Change Colour, and the engine
+ * *requires* one — a hand of nothing but colourless cards would otherwise produce
+ * a `colorRequired` rejection on what may be a winning card.
+ */
+function dominantColor(hand: readonly Card[], fallback: CardColor): CardColor {
+  const counts = colorCounts(hand);
+  let best = fallback;
+  let bestCount = 0;
+  for (const color of CARD_COLORS) {
+    if (counts[color] > bestCount) {
+      best = color;
+      bestCount = counts[color];
+    }
+  }
+  return best;
+}
+
+function activeSeatCount(table: PublicGameState): number {
+  return table.players.filter((player) => player.left !== true).length;
+}
+
+/** The seat that would move next, or `null` when there is nobody to name. */
+function nextPlayer(table: PublicGameState): PublicGameState['players'][number] | null {
+  const players = table.players;
+  const index = players.findIndex((player) => player.id === table.currentPlayerId);
+  if (index < 0) {
+    return null;
+  }
+  for (let step = 1; step <= players.length; step += 1) {
+    const at = (((index + step * table.direction) % players.length) + players.length) % players.length;
+    const candidate = players[at];
+    if (candidate && candidate.left !== true && candidate.id !== table.currentPlayerId) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/** How many cards the seat that would move next is holding. */
+function nextPlayerCardCount(table: PublicGameState): number {
+  return nextPlayer(table)?.cardCount ?? Number.POSITIVE_INFINITY;
+}
+
+/**
+ * How gently this robot has been asked to treat the seat about to be hit, and the
+ * gentlest it has been asked to be with anybody still in the round.
+ *
+ * Two numbers because two kinds of card need them. A +2 or a Stop lands on one
+ * person, so what matters is who is next. A +3 lands on the whole table, so what
+ * matters is whether anybody it would land on is somebody the table is looking
+ * after. Both are nought at an ordinary table, and every use of them below is
+ * written so that nought changes nothing.
+ */
+function leniencyAhead(view: BotView): number {
+  const next = nextPlayer(view.table);
+  return next === null ? 0 : assistFor(view.lenientToward, next.id);
+}
+
+function leniencyAtTable(view: BotView): number {
+  let most = 0;
+  for (const player of view.table.players) {
+    if (player.left !== true) {
+      most = Math.max(most, assistFor(view.lenientToward, player.id));
+    }
+  }
+  return most;
+}
+
+/**
+ * How often the robot takes the second-best card instead of the best one.
+ *
+ * The most human-looking of every method in this feature and the only one that
+ * cannot be caught, because there is nothing to catch: a robot that plays a good
+ * card instead of the perfect one is indistinguishable from a robot, a cousin or
+ * anybody else at the table. It is deliberately *not* a robot that plays badly —
+ * the second-best card is still a real move, so the table stays worth beating.
+ *
+ * Nought at a light lean: the first step of the dial is meant to be all luck and no
+ * charity.
+ */
+function slackChance(lenience: number): number {
+  switch (lenience) {
+    case 2:
+      return 0.25;
+    case 3:
+      return 0.5;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * How much the robot wants to play this card on an open turn. Higher is better.
+ *
+ * The shape of the table matters as much as the card: a +2 is worth more against
+ * somebody sitting on two cards, and a Taki is worth exactly as much as the colour
+ * behind it is long.
+ */
+function scoreCard(card: Card, view: BotView): number {
+  const { table, hand } = view;
+  const counts = colorCounts(hand);
+  /*
+   * The three punishing cards, and the one thing leniency changes about them: they
+   * stop being worth *more* against somebody who is nearly out and start being worth
+   * less than anything else in the hand. Not forbidden — a hand holding nothing else
+   * still plays one, because a robot that could not take its turn would stop the
+   * table — just ranked below every ordinary card, which is the difference between a
+   * robot that spares a child and a robot that cannot hurt one.
+   *
+   * Below `colorChange`'s 1, so the demotion is never a tie with a card the robot
+   * would otherwise have hoarded, and one step lower for each turn of the dial.
+   */
+  const ahead = leniencyAhead(view);
+  const pressure = ahead === 0 && nextPlayerCardCount(table) <= 3;
+
+  switch (card.kind) {
+    case 'plusThree': {
+      // Every other seat draws three unless somebody answers with a breaker — which
+      // is why this one asks about the whole table rather than the next seat.
+      const shared = leniencyAtTable(view);
+      return shared > 0 ? 1 - shared : 9;
+    }
+    case 'plusTwo':
+      return ahead > 0 ? 1 - ahead : pressure ? 8 : 7;
+    case 'stop':
+      // With two players a Stop comes straight back round: it is an extra turn,
+      // not a way of picking on the next seat. Which is exactly why it is demoted
+      // when the next seat is one the table is looking after: at two players the
+      // extra turn *is* the harm.
+      return ahead > 0 ? 1 - ahead : activeSeatCount(table) === 2 ? 8 : pressure ? 7 : 5;
+    case 'taki': {
+      // A sequence is worth what follows it: every other card of that colour.
+      const followers = Math.max(counts[card.color] - 1, 0);
+      return 6 + Math.min(followers, 4);
+    }
+    case 'superTaki': {
+      // The same, in the colour already leading — minus a point for spending a
+      // colourless card that could have opened a sequence at a better moment.
+      return 4 + Math.min(counts[table.activeColor], 4);
+    }
+    case 'plus': {
+      /*
+       * A Plus is worth having something to pay it with. The card it demands has
+       * to match the Plus's own colour or be colourless, and it may also be paid
+       * from the draw pile — so a Plus with nothing behind it is not a loss, just
+       * a turn spent going nowhere.
+       */
+      const followUp = hand.some(
+        (candidate) =>
+          candidate.id !== card.id && (cardColor(candidate) === card.color || cardColor(candidate) === null),
+      );
+      return followUp ? 6 : 3;
+    }
+    case 'number':
+      // Leaving the table in the colour this hand is strongest in makes the next
+      // turn easier, whenever it comes back round.
+      return counts[card.color] >= counts[dominantColor(hand, card.color)] ? 5 : 4;
+    case 'direction':
+      return 3;
+    case 'king':
+      // Hoarded: its value is cancelling somebody else's +2 run. When it is the
+      // only legal card it still wins this comparison.
+      return 2;
+    case 'colorChange':
+      // Hoarded for the same reason: it is the one card that is always playable.
+      return 1;
+    case 'breakPlusThree':
+      /*
+       * Never spent outside a +3 window. Its three cards are drawn *before* the
+       * win check, so it cannot even be a way out of a last card — and drawing one
+       * card from the pile is strictly cheaper than drawing three. Callers filter
+       * it out, so this score is only a backstop.
+       */
+      return -1;
+  }
+}
+
+function play(card: Card, chosenColor?: CardColor): GameAction {
+  return chosenColor === undefined
+    ? { type: 'playCard', cardId: card.id }
+    : { type: 'playCard', cardId: card.id, chosenColor };
+}
+
+/**
+ * Turns a chosen card into an action, naming a colour exactly when the card
+ * demands one: the engine rejects a missing choice and an unasked-for one alike.
+ */
+function playChoice(card: Card, view: BotView): GameAction {
+  if (card.kind !== 'colorChange') {
+    return play(card);
+  }
+  const rest = view.hand.filter((candidate) => candidate.id !== card.id);
+  return play(card, dominantColor(rest, view.table.activeColor));
+}
+
+/** Cards that may be played right now, minus the one the robot never spends. */
+function candidates(view: BotView): Card[] {
+  const context = playContextFromPublic(view.table);
+  return view.hand.filter((card) => card.kind !== 'breakPlusThree' && isCardPlayable(card, context));
+}
+
+/**
+ * Picks one of the joint-best cards, so two robots do not play in lockstep.
+ *
+ * At a table that is leaning towards somebody, it sometimes picks one of the
+ * joint-*second*-best instead — see {@link slackChance}. The extra draw from the
+ * seat's stream is taken only when there is a real chance of using it, so an
+ * ordinary table consumes exactly the randomness it always did and replays exactly
+ * as it always did.
+ */
+function pickBest(cards: readonly Card[], view: BotView, random: () => number): Card {
+  const tiers = new Map<number, Card[]>();
+  for (const card of cards) {
+    const score = scoreCard(card, view);
+    const tier = tiers.get(score);
+    if (tier) {
+      tier.push(card);
+    } else {
+      tiers.set(score, [card]);
+    }
+  }
+  const scores = [...tiers.keys()].sort((a, b) => b - a);
+  const slack = slackChance(leniencyAtTable(view));
+  const tier =
+    slack > 0 && scores.length > 1 && random() < slack ? (scores[1] as number) : (scores[0] as number);
+  const best = tiers.get(tier) as Card[];
+  const index = Math.min(Math.floor(random() * best.length), best.length - 1);
+  return best[index] as Card;
+}
+
+/**
+ * Continues or closes an open sequence of the robot's own.
+ *
+ * A sequence is defined by its colour and nothing inside it repaints the table — a
+ * further Taki included — so the only question is which of the remaining cards of
+ * that colour goes down next, and the answer is: the least useful one, because only
+ * the card the sequence closes on has an effect.
+ */
+function sequenceAction(view: BotView): GameAction {
+  const { hand } = view;
+  const context = playContextFromPublic(view.table);
+  const legal = hand.filter((card) => isCardPlayable(card, context));
+  if (legal.length === 0) {
+    // Nothing of the sequence colour left, so closing is the only move — and the
+    // card already on top resolves as the sequence's effect.
+    return { type: 'closeTaki' };
+  }
+  if (hand.length === 1) {
+    // Emptying the hand inside a sequence takes the round — or, in stairs, a step
+    // of it and a fresh hand. Both are worth having at once.
+    return play(legal[0] as Card);
+  }
+  const ordered = legal
+    .slice()
+    .sort((a, b) => SEQUENCE_ORDER[a.kind] - SEQUENCE_ORDER[b.kind] || a.id.localeCompare(b.id));
+  return play(ordered[0] as Card);
+}
+
+/**
+ * What to do with a turn. Always an action.
+ *
+ * A turn a robot declined to take would freeze the table, so every branch ends in
+ * a card, a close, or the draw pile — which is legal on every turn but one, and
+ * that one (an open sequence) is handled above it.
+ */
+function turnAction(view: BotView, random: () => number): GameAction {
+  const taki = view.table.takiMode;
+  if (taki !== null && taki.playerId === view.playerId) {
+    return sequenceAction(view);
+  }
+
+  const playable = candidates(view);
+  if (playable.length === 0) {
+    /*
+     * The pile. One move for three situations, exactly as it is for a human:
+     * nothing matches, a +2 run has to be paid in full, or a Plus obligation is
+     * being settled from the pile rather than from the hand.
+     */
+    return { type: 'drawCard' };
+  }
+  return playChoice(pickBest(playable, view, random), view);
+}
+
+/**
+ * The single playable card that would empty the hand, if the robot holds one.
+ *
+ * In a classic round that is the round won. In stairs it is a step down the
+ * staircase and a new hand — the eighth of which is the win — and it is played on
+ * sight either way, for the same reason: an empty hand is never worse than a full
+ * one, and nothing can be caught out of a hand that does not exist.
+ *
+ * A Plus is the one card here that wins nothing: it takes its card from the pile
+ * rather than emptying a hand. Playing it is still right, and for a plainer reason
+ * — the alternative is drawing that same card *and* keeping the Plus — so it is
+ * not filtered out. What follows is an ordinary undeclared last card, which the
+ * shout below picks up on the next decision.
+ */
+function winningCard(view: BotView): Card | null {
+  if (view.hand.length !== 1) {
+    return null;
+  }
+  const only = view.hand[0] as Card;
+  const context = playContextFromPublic(view.table);
+  // A breaker cannot win: its three cards are drawn before the win check.
+  if (only.kind === 'breakPlusThree' || !isCardPlayable(only, context)) {
+    return null;
+  }
+  return only;
+}
+
+/**
+ * A seat sitting on a single card it never declared, if there is one to call out.
+ *
+ * Absence is the one exception, and it is not the robot's kindness: somebody who
+ * is not there cannot shout, so calling them out would be farming rather than
+ * catching. A seat a robot is playing counts as present — it can shout.
+ *
+ * A seat the table is leaning towards is the second exception, and that one *is*
+ * kindness. Four cards for forgetting to shout is the harshest thing in the game
+ * and the one a small child forgets most reliably, so a robot that enforced it
+ * would undo, in a single call, everything the deal and the draw pile had quietly
+ * done all round. The humans at the table may still call them out, which is the
+ * point: the rule survives, and only the machine stops policing it.
+ */
+function silentSeat(view: BotView): string | null {
+  for (const player of view.table.players) {
+    const present = view.seats.find((seat) => seat.id === player.id)?.present ?? false;
+    if (
+      player.id !== view.playerId &&
+      player.left !== true &&
+      assistFor(view.lenientToward, player.id) === 0 &&
+      present &&
+      player.cardCount === 1 &&
+      !view.table.declaredLastCard.includes(player.id)
+    ) {
+      return player.id;
+    }
+  }
+  return null;
+}
+
+/**
+ * The one entry point: what this robot owes the table right now, or `null`.
+ *
+ * The order is deliberate:
+ *
+ * 1. A +3 freezes the whole table, so answering it comes before everything. While
+ *    it is open, the only other legal moves are the two shouts — declaring and
+ *    calling somebody out — and they stay available.
+ * 2. A card that empties the hand is played immediately — the round in a classic
+ *    game, a step of the staircase in stairs. The declaration is not what wins, so
+ *    pausing to shout first would only give the table time to catch it.
+ * 3. Declaring a last card is free and does not touch the turn, so it comes before
+ *    playing: a robot that played first would spend the round being caught.
+ * 4. Then the turn.
+ * 5. Calling somebody else out comes last, and (in the driver) slowest, because it
+ *    is the one move a human at the table would rather make themselves.
+ */
+export function chooseBotMove(view: BotView, random: () => number): BotMove | null {
+  const { table, hand, playerId } = view;
+  if (table.phase !== 'playing') {
+    return null;
+  }
+  const me = table.players.find((player) => player.id === playerId);
+  if (!me || me.left === true) {
+    return null;
+  }
+
+  const frozen = table.plusThree !== null;
+  if (frozen && view.canAnswerPlusThree) {
+    /*
+     * Only from a seat the engine is actually waiting on. Holding a breaker is not
+     * the same question — a hand can gain one mid-window — and a breaker from a seat
+     * nobody is waiting for is refused, as is `passBreak`. So there is nothing to
+     * answer and nothing to decline; the two shouts below stay available.
+     */
+    const breaker = hand.find((card) => card.kind === 'breakPlusThree');
+    if (breaker) {
+      return { action: play(breaker), kind: 'breaker' };
+    }
+  }
+
+  const myTurn = !frozen && table.currentPlayerId === playerId;
+  const declared = table.declaredLastCard.includes(playerId);
+
+  if (myTurn) {
+    const winning = winningCard(view);
+    if (winning) {
+      return { action: playChoice(winning, view), kind: 'turn' };
+    }
+  }
+
+  if (hand.length === 1 && !declared) {
+    return { action: { type: 'declareLastCard' }, kind: 'declare' };
+  }
+
+  if (myTurn) {
+    const action = turnAction(view, random);
+    const inSequence = table.takiMode !== null && table.takiMode.playerId === playerId;
+    return { action, kind: 'turn', ...(inSequence ? { inSequence } : {}) };
+  }
+
+  const target = silentSeat(view);
+  if (target !== null) {
+    return { action: { type: 'catchLastCard', targetId: target }, kind: 'catch' };
+  }
+
+  return null;
+}

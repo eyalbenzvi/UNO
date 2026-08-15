@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+blob-report/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.local
+.vite/
+
+# Local QA driver scripts (screenshots, layout probes); not part of the build.
+.qa/

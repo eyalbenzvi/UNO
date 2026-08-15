@@ -1,0 +1,118 @@
+name: Deploy to GitHub Pages
+
+# Triggered on every branch, but the jobs below only run for the repository's
+# *default* branch. GitHub's `github-pages` environment refuses deployments from
+# any other branch, so keying off the default branch is what actually matches the
+# rule — and it keeps working if the default branch is renamed, without editing
+# this file. Pushes to other branches show up as skipped runs.
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+# The Pages deployment needs these permissions. They are granted here, per
+# workflow, so nothing else in the repository gains write access.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deployment at a time; queue rather than cancel so a push is never
+# silently dropped.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build static site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.ref_name == github.event.repository.default_branch
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Note: `enablement: true` looks tempting here, but the default GITHUB_TOKEN
+      # is not allowed to *create* a Pages site ("Resource not accessible by
+      # integration"), and setting it replaces the clear "Pages is not enabled"
+      # message with a confusing permissions error. Pages has to be switched on
+      # once by hand — see docs/deployment.md.
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Resolve base path
+        id: base
+        env:
+          # `configure-pages` reports the final origin and path, which covers
+          # project pages, user/organisation pages and custom domains alike.
+          RESOLVED_PATH: ${{ steps.pages.outputs.base_path }}
+        run: |
+          set -euo pipefail
+          path="${RESOLVED_PATH:-/}"
+          # Vite needs a trailing slash, and an empty path means the site root.
+          case "$path" in
+            "" | "/") base="/" ;;
+            */) base="$path" ;;
+            *) base="$path/" ;;
+          esac
+          echo "Using Vite base: $base"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          VITE_BASE_PATH: ${{ steps.base.outputs.base }}
+          # The game's relay (the Cloudflare Worker in `worker/`). Set the
+          # RELAY_URL repository variable to the deployed worker URL with a
+          # `wss://` scheme — the deploy-worker workflow prints it. Without it
+          # the build only knows how to reach a local `wrangler dev`.
+          VITE_RELAY_URL: ${{ vars.RELAY_URL }}
+        run: npm run build
+
+      - name: Add SPA fallback
+        run: |
+          # GitHub Pages cannot rewrite unknown paths, so a copy of index.html
+          # is served as 404.html. Routing itself uses the URL hash, so this is
+          # only a safety net for mistyped paths. (`.nojekyll` and `robots.txt`
+          # come from `public/`, which Vite copies verbatim.)
+          cp dist/index.html dist/404.html
+          test -f dist/.nojekyll
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        with:
+          # Twenty minutes rather than the action's default ten.
+          #
+          # This step does not do the deploying — it asks GitHub to, and then polls.
+          # All the waiting is time spent in Pages' own queue, which on a bad afternoon
+          # runs right at the edge of the default: two deployments of the same commit
+          # aborted at exactly 10m00s with the status still `deployment_queued`, and the
+          # third finished at 9m01s. Nothing was wrong with either build.
+          #
+          # A ceiling that a healthy deploy clears in under a minute, and a congested one
+          # misses by seconds, is a coin toss rather than a timeout. Doubling it costs
+          # nothing when the queue is quick — the step returns as soon as GitHub is done.
+          timeout: 1200000

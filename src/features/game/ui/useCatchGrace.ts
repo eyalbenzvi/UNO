@@ -1,0 +1,65 @@
+import { useEffect, useState } from 'react';
+import { LAST_CARD_GRACE_MS } from '../network/timing.ts';
+import type { OpponentView } from '../state/selectors.ts';
+
+/** Which set of exposed seats has already served its window. */
+const NONE = { seats: '', served: false } as const;
+
+/**
+ * Holds the "never declared!" button back for the head start a last card buys.
+ *
+ * The host is the authority — it refuses a catch made inside the window whatever
+ * a client believes — but a button that appears and then answers "there is nobody
+ * to catch" is a worse control than one that is not there yet. This is the same
+ * rule, rendered.
+ *
+ * Timed from the moment *this* client first saw the seat come down to one card,
+ * which is the room's moment plus however long the snapshot took to arrive. That
+ * only ever makes the button appear later than the room would allow, never
+ * earlier, so the two can disagree about the exact instant without a player ever
+ * meeting a refusal. Measuring anything sharper would need the room's clock on
+ * the wire, for the sliver of a social rule this window is.
+ *
+ * The window is held for the whole set of exposed seats rather than one each, and
+ * the served flag is stored *with* the set it was measured for — which is what
+ * makes a seat that leaves the set and comes back get a fresh window instead of
+ * inheriting the old one. The cost is that a second seat coming down to a silent
+ * last card restarts the window for both, so an existing button can blink off for
+ * a moment. That needs two players to reach their last card inside the same
+ * `LAST_CARD_GRACE_MS`, which is a fifth of a second, and it errs in the direction
+ * the rule already leans — towards the player being called out.
+ */
+export function useCatchGrace(
+  opponents: readonly OpponentView[],
+  delayMs: number = LAST_CARD_GRACE_MS,
+): readonly OpponentView[] {
+  const seats = opponents
+    .filter((opponent) => opponent.catchable)
+    .map((opponent) => opponent.id)
+    .sort()
+    .join(' ');
+  const [grace, setGrace] = useState<{ readonly seats: string; readonly served: boolean }>(NONE);
+
+  // Nothing else will re-render this screen when a window merely expires: the
+  // table state has not changed, only the clock.
+  useEffect(() => {
+    if (seats === '' || delayMs <= 0) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setGrace({ seats, served: true });
+    }, delayMs);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [seats, delayMs]);
+
+  /*
+   * A player the table is leaning towards waits for nothing, and that is settled
+   * during render rather than by a timer of length nought: the room waives the same
+   * window from its side, so there is nothing to synchronise and no moment for the
+   * two answers to disagree in.
+   */
+  const served = delayMs <= 0 || (grace.served && grace.seats === seats);
+  return served ? opponents : opponents.map((o) => (o.catchable ? { ...o, catchable: false } : o));
+}
