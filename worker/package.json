@@ -2,7 +2,7 @@
   "name": "uno-room",
   "version": "1.0.0",
   "private": true,
-  "description": "Super Taki rooms: one Durable Object per room code, and the object is the game. Zero cost.",
+  "description": "UNO rooms: one Durable Object per room code, and the object is the game. Zero cost.",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --port 8787",
