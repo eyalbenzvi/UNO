@@ -51,7 +51,7 @@ async function playRoundOut(host: Page, guest: Page, budgetMs: number): Promise<
     for (const page of [host, guest]) {
       await page.bringToFront();
       await awaitSettled(page);
-      for (const name of [/Last card!/, 'Let it through', 'Close Taki', /^Take \d+ cards?$/]) {
+      for (const name of [/UNO!/, 'Take four', 'Call the bluff', 'End my turn']) {
         const button = page.getByRole('button', { name });
         if (await button.isVisible().catch(() => false)) {
           await button.click().catch(() => undefined);

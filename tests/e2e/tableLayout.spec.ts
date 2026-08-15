@@ -7,7 +7,7 @@ import { awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp } from
  * Three reports drove this file, all of them "cut off": the pile panel sliced in
  * half by the bottom of its own region; in landscape, and with a big hand upright,
  * cards that were simply not on the screen; and — under a hand of forty — the
- * prompt squeezed to nothing, taking the Close Taki button with it. None of the
+ * prompt squeezed to nothing, taking the button that ends a turn with it. None of the
  * three is visible to a test that only asks whether an element exists, so these
  * measure geometry: every card inside the viewport, the panel inside the region
  * that holds it, and the whole prompt inside its own row.
@@ -220,11 +220,12 @@ test.describe('the table fits the screen', () => {
   /*
    * The prompt is the one row that may never be squeezed out.
    *
-   * Reported from a real game: a player holding a fat hand played a Taki, and the
-   * Close Taki button was nowhere on the screen — so there was no way to end the
+   * Reported from a real game: a player holding a fat hand drew a card they could
+   * not play, and the button that ends the turn was nowhere on screen — so there was
+   * no way to end the
    * turn at all. The hand had asked for its full 52svh, the table was already at
    * its floor, and the prompt was the only row left with any give and no floor of
-   * its own, so it was squeezed to nothing. Nothing about that is specific to Taki:
+   * its own, so it was squeezed to nothing. Nothing about that is specific to one card:
    * every prompt on this table shares the row, and each of them is the only way out
    * of the state it describes.
    *
@@ -266,7 +267,7 @@ test.describe('the table fits the screen', () => {
 async function playOrDraw(page: Page): Promise<boolean> {
   await page.bringToFront();
   await awaitSettled(page);
-  for (const name of [/Last card!/, 'Let it through', 'Close Taki', /^Take \d+ cards?$/]) {
+  for (const name of [/UNO!/, 'Take four', 'Call the bluff', 'End my turn']) {
     const button = page.getByRole('button', { name });
     if (await button.isVisible().catch(() => false)) {
       await button.click().catch(() => undefined);

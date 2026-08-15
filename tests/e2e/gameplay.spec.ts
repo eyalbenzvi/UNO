@@ -5,8 +5,8 @@ import { awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp, tapIf
  * Plays a complete round through the UI.
  *
  * Both players act like simple bots: play the first legal card, close an open
- * Taki sequence when nothing else is legal, otherwise draw. This exercises long
- * chains of real host-validated commands — including special cards, Taki
+ * turn when nothing else is legal, otherwise draw. This exercises long
+ * chains of real room-validated commands — including the action cards, the wilds
  * sequences and draw-pile recycling — and ends on the game-over screen.
  *
  * Bounded by the clock rather than by a step count. How many steps a round
@@ -41,8 +41,10 @@ async function takeOneAction(page: Page): Promise<boolean> {
     return true;
   }
 
-  // An open +3 suspends the turn order, so this comes before the turn check.
-  if (await tapIfPresent(page, 'Let it through')) {
+  // An open Wild Draw Four suspends the turn order, so this comes before the turn
+  // check. Taking the cards rather than calling the bluff keeps the driver honest:
+  // a challenge is a gamble, and a gamble makes a round different every run.
+  if (await tapIfPresent(page, 'Take four')) {
     return true;
   }
 
@@ -60,13 +62,14 @@ async function takeOneAction(page: Page): Promise<boolean> {
     return true;
   }
 
-  const closeTaki = page.getByRole('button', { name: 'Close Taki' });
-  if (await closeTaki.isVisible().catch(() => false)) {
-    await clickInForeground(page, closeTaki);
+  const endTurn = page.getByRole('button', { name: 'End my turn' });
+  if (await endTurn.isVisible().catch(() => false)) {
+    await clickInForeground(page, endTurn);
     return true;
   }
 
-  // Paying an outstanding +2 run: the prompt's own button is the shortest path.
+  // Kept as a no-op seam: the prompt no longer offers a bulk take, and a driver that
+  // silently stopped looking for one would hide a regression rather than report it.
   const takeCards = page.getByRole('button', { name: /^Take \d+ cards?$/ });
   if (await takeCards.isVisible().catch(() => false)) {
     await clickInForeground(page, takeCards);

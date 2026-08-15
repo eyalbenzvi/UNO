@@ -82,7 +82,7 @@ export async function onTurn(page: Page): Promise<boolean> {
  * keys on the `disabled` *property* — so it would report a blocked pile as ready
  * and a driver would click it, collect a refusal, and report that it had moved.
  * The turn check in front of these callers does not cover it: the pile is also
- * blocked while a Taki sequence is open, while a +3 waits, and while a submitted
+ * blocked once a card has been drawn, while a Wild Draw Four waits, and while a submitted
  * move is unanswered.
  */
 export async function canDrawFrom(page: Page): Promise<boolean> {
@@ -129,20 +129,18 @@ export async function takeAnyTurn(page: Page): Promise<boolean> {
    * why `aria-disabled` rather than `isEnabled()` is the question to ask.
    */
   /*
-   * A sequence of our own, with nothing left to add to it.
+   * A turn that has already drawn, with nothing playable to show for it.
    *
-   * The pile is refused while a Taki is open — that is the rule, not a glitch — so a
-   * driver that only knows "play a card or draw" has no move here at all. It is our
-   * turn, so no robot will break the tie either, and the round stops until the budget
-   * runs out. Two of this suite's failures were this state wearing different clothes:
-   * first an unbounded click waiting ten minutes on the disabled pile, then, once that
-   * was guarded, a spin doing nothing for eight.
+   * The pile is refused for the rest of the turn once a card has been taken — that is
+   * the rule, not a glitch — so a driver that only knows "play a card or draw" has no
+   * move here at all. It is our turn, so no robot will break the tie either, and the
+   * round stops until the budget runs out.
    *
-   * Closing it is what a player does, and what the room's own test driver does.
+   * Ending the turn is what a player does, and what the room's own driver does.
    */
-  const closeTaki = page.getByRole('button', { name: 'Close Taki' });
-  if (await closeTaki.isVisible().catch(() => false)) {
-    await closeTaki.click({ timeout: 5_000 });
+  const endTurn = page.getByRole('button', { name: 'End my turn' });
+  if (await endTurn.isVisible().catch(() => false)) {
+    await endTurn.click({ timeout: 5_000 });
     return true;
   }
 

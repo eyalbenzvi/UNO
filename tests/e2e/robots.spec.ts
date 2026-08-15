@@ -82,7 +82,7 @@ test.describe('a table with a robot in it', () => {
     /*
      * Now play. The human plays the first legal card each time; the robot answers on
      * its own, from inside the room, with no help from this test. The round is bounded
-     * by the clock rather than by a step count — how long a Taki round runs varies
+     * by the clock rather than by a step count — how long a round runs varies
      * enormously — and the assertion is that it *ends*.
      */
     const deadline = Date.now() + ROUND_BUDGET_MS;
@@ -108,7 +108,7 @@ test.describe('a table with a robot in it', () => {
       if (await tapIfPresent(page, /Last card!/)) {
         continue;
       }
-      if (await tapIfPresent(page, 'Let it through')) {
+      if (await tapIfPresent(page, 'Take four')) {
         continue;
       }
       if (await takeAnyTurn(page)) {
