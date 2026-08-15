@@ -62,31 +62,18 @@
 }
 
 /*
- * A colourless card is white like the rest; what marks it out is its drawing —
- * four suits at once, a crown, a snapped numeral. The printed deck puts no band
- * or border on them either.
+ * A colourless card is white like the rest; what marks it out is its drawing. The
+ * printed deck puts no band or border on them either.
  *
- * The ones that belong to no suit are struck in metal, so nobody reads a gold
- * crown as a yellow card. Change Colour and Super Taki are the exception: they
- * mean *every* colour, and they colour their own parts.
+ * Struck in a colour that belongs to no suit, so nobody reads a Wild Draw Four's
+ * numeral as a yellow card. The plain Wild is the exception and needs no rule of
+ * its own: it means *every* colour, so each of its four cubes claims a suit
+ * through `glyph__slot--N` and this variable never reaches them.
  */
 .card--wild {
   --glyph: var(--card-violet-face);
   --glyph-mid: var(--card-violet-mid);
   --glyph-deep: var(--card-violet-deep);
-}
-
-.card[data-kind='king'] {
-  --glyph: var(--card-orange-face);
-  --glyph-mid: var(--card-orange-mid);
-  --glyph-deep: var(--card-orange-deep);
-}
-
-/* The stone in the King's rim, lit brighter than the metal around it. */
-.glyph__slot--4 {
-  --glyph: var(--card-yellow-face);
-  --glyph-mid: var(--card-yellow-mid);
-  --glyph-deep: var(--card-yellow-deep);
 }
 
 /*

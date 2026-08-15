@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { createRoom, joinRoom, openApp, openSettings, switchToEnglish } from './helpers.ts';
+import { expectDealt, createRoom, joinRoom, openApp, openSettings, switchToEnglish } from './helpers.ts';
 
 /**
  * The scenarios that used to end a game, played through the real UI against the real
@@ -55,8 +55,8 @@ test.describe('a player that reloads mid-round', () => {
     const { creator, guest, close } = await seatTwoDevices(browser);
 
     await creator.getByRole('button', { name: 'Start game' }).click();
-    await expect(creator.locator('.hand .card')).toHaveCount(8);
-    await expect(guest.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(creator);
+    await expectDealt(guest);
 
     await guest.reload();
     await switchToEnglish(guest);
@@ -68,8 +68,8 @@ test.describe('a player that reloads mid-round', () => {
      * game because a page happened to load.
      */
     await guest.getByRole('button', { name: 'Rejoin' }).click();
-    await expect(guest.locator('.hand .card')).toHaveCount(8);
-    await expect(creator.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(guest);
+    await expectDealt(creator);
     await close();
   });
 
@@ -88,17 +88,17 @@ test.describe('a player that reloads mid-round', () => {
     const { creator, guest, roomCode, close } = await seatTwoDevices(browser);
 
     await creator.getByRole('button', { name: 'Start game' }).click();
-    await expect(creator.locator('.hand .card')).toHaveCount(8);
-    await expect(guest.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(creator);
+    await expectDealt(guest);
 
     await creator.reload();
     await switchToEnglish(creator);
 
     // The same one tap everybody else gets. No "carry on hosting", no reclaim.
     await creator.getByRole('button', { name: 'Rejoin' }).click();
-    await expect(creator.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(creator);
     // The same room, on the same code, for everybody.
-    await expect(guest.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(guest);
     await openSettings(creator);
     await expect(creator.getByText(new RegExp(roomCode)).first()).toBeVisible();
     await close();
@@ -110,13 +110,13 @@ test.describe('a player that reloads mid-round', () => {
     await seatTwoPlayers(creator, guest);
 
     await creator.getByRole('button', { name: 'Start game' }).click();
-    await expect(guest.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(guest);
 
     await guest.close();
 
     // The table is still a table: the player who is still here is not sent home, and
     // is not told the room has closed.
-    await expect(creator.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(creator);
     await expect(creator.getByRole('button', { name: 'Create game' })).toBeHidden();
   });
 });
@@ -127,7 +127,7 @@ test.describe('a table that needs a moment', () => {
     const guest = await context.newPage();
     await seatTwoPlayers(creator, guest);
     await creator.getByRole('button', { name: 'Start game' }).click();
-    await expect(creator.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(creator);
 
     await openSettings(creator);
     await creator.getByRole('button', { name: 'Ask the table to wait' }).click();
@@ -149,7 +149,7 @@ test.describe('a table that needs a moment', () => {
     const guest = await context.newPage();
     await seatTwoPlayers(creator, guest);
     await creator.getByRole('button', { name: 'Start game' }).click();
-    await expect(creator.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(creator);
 
     await openSettings(creator);
     await creator.getByRole('button', { name: 'End this round' }).click();

@@ -7,7 +7,7 @@
  * the moment the round ends. Two of these were written after they found bugs.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp } from './helpers.ts';
+import { expectDealt, awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp } from './helpers.ts';
 
 /**
  * How many passes in a row have to find nothing to do before the table counts as
@@ -101,8 +101,8 @@ async function seat(host: Page, guest: Page): Promise<void> {
   await expect(host.getByText('2 of 2 players')).toBeVisible();
   await host.bringToFront();
   await host.getByRole('button', { name: 'Start game' }).click();
-  await expect(host.locator('.hand .card')).toHaveCount(8);
-  await expect(guest.locator('.hand .card')).toHaveCount(8);
+  await expectDealt(host);
+  await expectDealt(guest);
 }
 
 test('hammering a blocked draw pile changes nothing and always explains itself', async ({ context }) => {

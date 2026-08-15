@@ -44,7 +44,7 @@ test.describe('landing screen', () => {
 
   test('shows the wordmark, the two ways in, and settings', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { level: 1 })).toHaveAccessibleName('סופר טאקי');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveAccessibleName('אונו');
     await expect(page.getByRole('button')).toHaveCount(3);
     await expect(page.getByRole('button', { name: 'הגדרות' })).toBeVisible();
   });

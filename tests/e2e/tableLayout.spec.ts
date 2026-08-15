@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp } from './helpers.ts';
+import { expectDealt, awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp } from './helpers.ts';
 
 /**
  * The table has to fit the screen it is on.
@@ -133,7 +133,7 @@ test.describe('the table fits the screen', () => {
     await expect(host.getByText('2 of 2 players')).toBeVisible();
     await host.bringToFront();
     await host.getByRole('button', { name: 'Start game' }).click();
-    await expect(host.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(host);
 
     // A phone upright, with the hand it is dealt.
     await resize(host, { width: 390, height: 664 });
@@ -189,7 +189,7 @@ test.describe('the table fits the screen', () => {
     await expect(host.getByText('2 of 2 players')).toBeVisible();
     await host.bringToFront();
     await host.getByRole('button', { name: 'Start game' }).click();
-    await expect(host.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(host);
     await resize(host, { width: 390, height: 664 });
 
     const seen = new Set<number>();
@@ -245,7 +245,7 @@ test.describe('the table fits the screen', () => {
     await expect(host.getByText('2 of 2 players')).toBeVisible();
     await host.bringToFront();
     await host.getByRole('button', { name: 'Start game' }).click();
-    await expect(host.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(host);
 
     await resize(host, { width: 390, height: 664 });
     const held = await growHand(host, guest, 14);

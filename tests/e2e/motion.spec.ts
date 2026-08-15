@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp } from './helpers.ts';
+import { expectDealt, awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp } from './helpers.ts';
 
 /**
  * What only a browser can answer about motion.
@@ -32,9 +32,9 @@ async function dealOnce(host: Page, guest: Page): Promise<void> {
   await joinRoom(guest, 'Eli', roomCode);
   await expect(host.getByText('2 of 2 players')).toBeVisible();
   await host.getByRole('button', { name: 'Start game' }).click();
-  await expect(host.locator('.hand .card')).toHaveCount(8);
+  await expectDealt(host);
   // Both hands, because the comparisons below read one state off each page.
-  await expect(guest.locator('.hand .card')).toHaveCount(8);
+  await expectDealt(guest);
   /*
    * The host is the tab under test, so it has to be the focused one. Chromium
    * freezes animations in a background tab, which holds a filled animation at its

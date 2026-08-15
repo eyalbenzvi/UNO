@@ -53,6 +53,21 @@ export async function joinRoom(page: Page, name: string, roomCode: string): Prom
  * that would stall on Playwright's actionability check instead of on the game.
  * A player waits for the table to settle too.
  */
+/**
+ * Waits for a hand to have been dealt, without pinning the number.
+ *
+ * Seven each, unless the opening card was a Draw Two — which falls on the first
+ * player before anybody has moved, and makes their hand nine. That is a real deal
+ * rather than a fault, so a fixed count here would fail on roughly one round in
+ * fourteen for a reason that has nothing to do with what is being tested.
+ */
+export async function expectDealt(...pages: readonly Page[]): Promise<void> {
+  for (const page of pages) {
+    await expect.poll(() => page.locator('.hand .card').count()).toBeGreaterThanOrEqual(7);
+    expect([7, 9]).toContain(await page.locator('.hand .card').count());
+  }
+}
+
 export async function awaitSettled(page: Page): Promise<void> {
   await page
     .locator('.game__action', { hasText: /Sending your move|שולח את המהלך/ })

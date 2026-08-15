@@ -12,7 +12,7 @@ import { awaitSettled, createRoom, openApp, takeAnyTurn, tapIfPresent } from './
  * it.
  */
 /**
- * A round's length varies enormously — the 116-card deck deals big hands and every
+ * A round’s length varies enormously — a hand grows on every Draw Two and every
  * +2 run makes them bigger — so the budget is the clock, not a step count, and the
  * test's own timeout has to sit outside it.
  *

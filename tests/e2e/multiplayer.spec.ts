@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
+  expectDealt,
   createRoom,
   joinRoom,
   openApp,
@@ -43,8 +44,8 @@ test.describe('a two-player game, against the real room', () => {
     await creator.getByRole('button', { name: 'Start game' }).click();
 
     // Both sides receive the table; each holds exactly eight private cards.
-    await expect(creator.locator('.hand .card')).toHaveCount(8);
-    await expect(guest.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(creator);
+    await expectDealt(guest);
     await expect(creator.getByText('Current colour:')).toBeVisible();
     await expect(guest.getByText('Current colour:')).toBeVisible();
 
@@ -99,7 +100,7 @@ test.describe('a two-player game, against the real room', () => {
     const guest = await context.newPage();
     await seatTwoPlayers(creator, guest);
     await creator.getByRole('button', { name: 'Start game' }).click();
-    await expect(guest.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(guest);
 
     const creatorLabels = await creator
       .locator('.hand .card')

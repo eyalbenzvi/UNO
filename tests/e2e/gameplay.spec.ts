@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp, tapIfPresent } from './helpers.ts';
+import { expectDealt, awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp, tapIfPresent } from './helpers.ts';
 
 /**
  * Plays a complete round through the UI.
@@ -10,7 +10,7 @@ import { awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp, tapIf
  * sequences and draw-pile recycling — and ends on the game-over screen.
  *
  * Bounded by the clock rather than by a step count. How many steps a round
- * takes varies enormously — the 116-card deck deals big hands and every +2 run
+ * takes varies enormously — a hand grows on every Draw Two and every Wild Draw Four
  * makes them bigger — and a step count that fits the average round fails the
  * long ones for no reason. Time is what the test actually has to stay inside.
  */
@@ -105,7 +105,7 @@ test.describe('a complete round', () => {
     await expect(host.getByText('2 of 2 players')).toBeVisible();
 
     await host.getByRole('button', { name: 'Start game' }).click();
-    await expect(host.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(host);
 
     const deadline = Date.now() + ROUND_BUDGET_MS;
     let finished = false;
@@ -139,7 +139,7 @@ test.describe('a complete round', () => {
     await expect(host.getByText('1 of 2 agreed')).toBeVisible();
     await guest.getByRole('button', { name: 'Play again' }).click();
 
-    await expect(host.locator('.hand .card')).toHaveCount(8);
-    await expect(guest.locator('.hand .card')).toHaveCount(8);
+    await expectDealt(host);
+    await expectDealt(guest);
   });
 });

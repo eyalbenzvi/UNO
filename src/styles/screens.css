@@ -374,8 +374,8 @@
  * It used to refuse to shrink at all, which sounds like the right priority and is
  * not: a hand of forty cards asked for 52svh, the table was already at its floor,
  * and the only row left with any give was the prompt — which has no floor of its
- * own, so it collapsed to nothing. A player holding a big hand mid-Taki was left
- * with no Close Taki button anywhere on the screen and no way to end their turn.
+ * own, so it collapsed to nothing. A player holding a big hand who had drawn a card
+ * they could not play was left with no way to end their turn anywhere on screen.
  *
  * So the order in which rows give way is now: the table scales its cards down to
  * its floor, and then the hand — which past 52svh is a scrolling region anyway, so
