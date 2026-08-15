@@ -270,6 +270,7 @@ export const en = {
   'reject.colorRequired': 'Choose a colour for this card.',
   'reject.colorNotAllowed': 'This card cannot change the colour.',
   'reject.onlyDrawnCardPlayable': 'You have drawn this turn, so only that card can be played.',
+  'reject.pileSpent': 'There is nothing left to draw. End your turn instead.',
   'reject.alreadyDrew': 'You have already drawn a card this turn.',
   'reject.nothingToPass': 'Play a card, or draw one, before ending your turn.',
   'reject.awaitingChallenge': 'The table is waiting to see whether the Wild Draw Four is challenged.',

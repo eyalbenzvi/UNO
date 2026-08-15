@@ -154,7 +154,7 @@ Requirements: Node.js 20+ (CI uses 22) and npm 10+.
 ## Running the tests
 
 ```bash
-npm test                # 887 unit + component tests
+npm test                # 888 unit + component tests
 npm run test:coverage   # same, with coverage thresholds enforced
 
 # End-to-end, x 2 viewports. Build first: the suite serves `dist/`, and the room's

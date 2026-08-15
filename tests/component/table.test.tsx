@@ -119,7 +119,7 @@ describe('what to do now', () => {
   it('names the player being waited for when it is not your turn', () => {
     table({ hand: [red5], myTurn: false });
     renderApp();
-    expect(screen.getByText('ממתינים לאלי…')).toBeInTheDocument();
+    expect(screen.getByText('ממתינים ל־אלי…')).toBeInTheDocument();
   });
 
   it('shows one prompt at a time, in priority order', () => {

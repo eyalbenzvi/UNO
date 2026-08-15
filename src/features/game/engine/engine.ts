@@ -633,6 +633,21 @@ function applyDrawCard(state: GameState, playerId: PlayerId): CommandResult {
   }
 
   const draft = toDraft(state);
+  /*
+   * Refused rather than accepted as a no-op.
+   *
+   * A draw against a pile with nothing left in it, discard included, takes no card
+   * — so `drawnCardId` stays empty and the same command is legal again immediately.
+   * Accepted, it would bump the version and reset every deadline that exists to
+   * rescue a stalled seat, for ever, on a move that changes nothing. The screen
+   * never offers it (`pileSpent` closes the pile and offers the turn's end
+   * instead), and the robots do not ask for it either — but neither of those is
+   * the wire.
+   */
+  if (pileExhausted(draft)) {
+    return reject('pileSpent');
+  }
+
   const events: GameEvent[] = [];
   const handsBefore = state.hands;
 

@@ -356,6 +356,16 @@ export const REJECTION_CODES = [
   'onlyDrawnCardPlayable',
   /** Asked for a second card in one turn. */
   'alreadyDrew',
+  /**
+   * Asked the pile for a card when there is nothing anywhere left to draw.
+   *
+   * Its own code rather than a silently accepted no-op. A draw that takes nothing
+   * leaves `drawnCardId` empty, so the command stays legal and can be sent again
+   * for ever — and each one is *accepted*, which bumps the version and resets every
+   * deadline that would otherwise rescue the seat. The screen never offers this,
+   * but the wire is not the screen.
+   */
+  'pileSpent',
   /** Asked to end a turn without having drawn, and with cards left to draw. */
   'nothingToPass',
   /** The table is frozen while a Wild Draw Four waits to be answered. */

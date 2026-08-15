@@ -66,7 +66,7 @@ Where coverage is deliberately lower:
 Exact counts per area (from `vitest --reporter=json`):
 
 ```
- 215  tests/unit/engine/*         deck, prng, setup, matching, commands, openingCard,
+ 217  tests/unit/engine/*         deck, prng, setup, matching, commands, openingCard,
                                   actionCards, drawTurn, wildDrawFour, uno, points,
                                   drawPile, win, views, absence, assist
   81  tests/unit/network/*        protocol, envelope, roomCode, sessions, clientSession
@@ -77,7 +77,7 @@ Exact counts per area (from `vitest --reporter=json`):
   19  tests/unit/i18n.test.ts     dictionary parity and interpolation
  181  tests/component/*           landing, forms, lobby, game, gameOver, table, flightLayer
  ----
- 887  total
+ 888  total
 ```
 
 Plus **101 room tests** in `worker/test/`, gated separately with their own coverage floor,
