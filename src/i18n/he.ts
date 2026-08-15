@@ -143,6 +143,7 @@ export const he: Translations = {
   'game.drewUnplayable': 'משכת {card}, והוא לא מתאים. אפשר לסיים את התור.',
   'game.passTurn': 'סיום התור',
   'game.pileSpent': 'לא נשארו קלפים למשיכה. אפשר לסיים את התור.',
+  'game.pileSpentButPlayable': 'לא נשארו קלפים למשיכה. אפשר להניח קלף או לסיים את התור.',
   'game.mustDraw': 'אין קלף חוקי. יש למשוך קלף מהחבילה.',
   'game.challengeTitle': 'הונח ג׳וקר קח 4',
   'game.challengeWaiting': 'ממתינים לראות אם {name} לוקח/ת את ארבעת הקלפים…',

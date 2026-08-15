@@ -274,9 +274,11 @@
  *
  * `--pile-chrome` is everything on it that is not the card: its own padding, the
  * colour rail around the discard, the labels under the piles. Subtracting that
- * before dividing by the 2:3 card ratio is what makes the cards fit the region
- * rather than spill out of it — the panel comes out at card height plus the
- * chrome, and nothing is cut.
+ * before applying the card's 56 × 88 proportion is what makes the cards fit the
+ * region rather than spill out of it — the panel comes out at card height plus
+ * the chrome, and nothing is cut. The ratio is written out rather than left as a
+ * divisor: it was `/ 1.5` for a 2:3 card, and when the cards took the printed
+ * proportion instead the six pixels of slack below were silently eaten.
  *
  * Each figure is the measured chrome for that tier **plus about 6 px of slack**,
  * and the slack is the point. Calibrated to the pixel it was portable right up
@@ -291,7 +293,7 @@
 .piles {
   --pile-chrome: 6.375rem;
   --pile-max: 5.5rem;
-  --card-w-lg: clamp(1.5rem, min(calc((100cqh - var(--pile-chrome)) / 1.5), 30cqi), var(--pile-max));
+  --card-w-lg: clamp(1.5rem, min(calc((100cqh - var(--pile-chrome)) * 56 / 88), 30cqi), var(--pile-max));
 }
 
 /*
@@ -868,8 +870,8 @@
 
   /*
    * A prompt that has both a title and buttons says what it needs to in those two
-   * — "Taki sequence open — Blue" over a Close Taki button loses nothing without
-   * the sentence between them. Only that shape: a prompt whose text is its only
+   * — "Wild Draw Four played" over a Take four button loses nothing without the
+   * sentence between them. Only that shape: a prompt whose text is its only
    * content keeps it, or it would be an empty box.
    */
   .game__action .callout:has(.callout__title):has(.callout__actions) .callout__text {

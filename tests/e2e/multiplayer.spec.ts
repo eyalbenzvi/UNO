@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   awaitSettled,
+  tapIfPresent,
   expectDealt,
   createRoom,
   joinRoom,
@@ -33,6 +34,33 @@ async function seatTwoPlayers(creator: Page, guest: Page): Promise<string> {
   return roomCode;
 }
 
+/**
+ * Drives the table until `page` is the one on turn, with the turn untouched.
+ *
+ * The opening card is not always harmless. It is the first non-wild off the
+ * shuffle, and a quarter of those are action cards: a Skip, a Reverse or a Draw
+ * Two lands on whoever was dealt the first turn, and at two seats all three of
+ * them hand it straight to the other player. So roughly one deal in four does not
+ * begin with the room's creator, and a test about what a *turn* does has to start
+ * from one rather than assume it.
+ */
+async function waitForTurn(page: Page, other: Page): Promise<void> {
+  for (let step = 0; step < 24; step += 1) {
+    await page.bringToFront();
+    await awaitSettled(page);
+    // A Wild Draw Four aimed at us freezes the table until we answer it, and the
+    // turn stays with whoever played it — so this comes before the turn check.
+    if (await tapIfPresent(page, 'Take four')) {
+      continue;
+    }
+    if (await onTurn(page)) {
+      return;
+    }
+    await takeAnyTurn(other);
+  }
+  throw new Error('the turn never came round to this player');
+}
+
 test.describe('a two-player game, against the real room', () => {
   test('creates a room, joins by code and starts a game', async ({ context }) => {
     const creator = await context.newPage();
@@ -50,9 +78,14 @@ test.describe('a two-player game, against the real room', () => {
     await expect(creator.getByText('Current colour:')).toBeVisible();
     await expect(guest.getByText('Current colour:')).toBeVisible();
 
-    // The room deals the first turn to the first seat, so exactly one side is on turn.
-    await expect(creator.locator('.turn-banner--mine')).toBeVisible();
-    await expect(guest.locator('.turn-banner')).toHaveText("Dana's turn");
+    /*
+     * Exactly one side is on turn — and which one is not this test's business. The
+     * first turn goes to the first seat, but the opening card's effect falls on
+     * that seat before anybody has moved, and at two players a Skip, a Reverse or a
+     * Draw Two all hand it straight over. Naming the creator here failed on about
+     * one deal in four.
+     */
+    await expect.poll(async () => (await onTurn(creator)) !== (await onTurn(guest))).toBe(true);
   });
 
   /*
@@ -129,7 +162,7 @@ test.describe('a two-player game, against the real room', () => {
     const guest = await context.newPage();
     await seatTwoPlayers(creator, guest);
     await creator.getByRole('button', { name: 'Start game' }).click();
-    await expect(creator.locator('.turn-banner--mine')).toBeVisible();
+    await waitForTurn(creator, guest);
 
     /*
      * An opening hand with nothing legal in it is uncommon — roughly one deal
@@ -178,7 +211,7 @@ test.describe('a two-player game, against the real room', () => {
     const guest = await context.newPage();
     await seatTwoPlayers(creator, guest);
     await creator.getByRole('button', { name: 'Start game' }).click();
-    await expect(creator.locator('.turn-banner--mine')).toBeVisible();
+    await waitForTurn(creator, guest);
 
     /*
      * UNO's draw rule, which is the one this game most had to get right: drawing

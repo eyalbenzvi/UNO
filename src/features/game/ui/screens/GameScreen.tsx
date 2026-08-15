@@ -556,7 +556,15 @@ function ActionPrompt({
         }
       >
         {pileSpent && !hasDrawn
-          ? t('game.pileSpent')
+          ? /*
+             * An exhausted pile does not mean an exhausted hand. The turn can be
+             * ended without drawing, which is the whole reason this branch exists,
+             * but a player still holding something legal should be told to play it
+             * rather than sent to the button.
+             */
+            playableCount > 0
+            ? t('game.pileSpentButPlayable')
+            : t('game.pileSpent')
           : playableCount > 0
             ? t('game.drewCard', { card })
             : t('game.drewUnplayable', { card })}

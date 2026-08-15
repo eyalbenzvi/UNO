@@ -142,7 +142,7 @@
   display: block;
   inline-size: 100%;
   block-size: 100%;
-  /* Numerals and TAKI are Latin; a right-to-left page must not reorder them. */
+  /* Numerals and the wordmark are Latin; a right-to-left page must not reorder them. */
   direction: ltr;
   overflow: visible;
 }
@@ -188,13 +188,17 @@
  * which is what stops a wide "+4" running off the end of it.
  *
  * Sized against the card rather than against the glyph's box, because the box is
- * square and the oval is not.
+ * square and the oval is not — and sized to stay *inside* the padding box the
+ * card clips at. Rotated twenty degrees, this reaches 0.39 of the card's width to
+ * each side against the 0.455 it has, so the suit colour survives all the way
+ * round it. An oval that reached the clip line would come out flush with the
+ * white margin and read as a band across a card rather than as a shape on one.
  */
 .card__glyph::before {
   content: '';
   position: absolute;
-  inline-size: calc(var(--card-width) * 1.02);
-  block-size: calc(var(--card-width) * 0.88);
+  inline-size: calc(var(--card-width) * 0.8);
+  block-size: calc(var(--card-width) * 0.7);
   border-radius: 50%;
   background: var(--card-face);
   transform: rotate(-20deg);
@@ -232,8 +236,17 @@
  * White, printed straight on the coloured body with no oval under it. The suit is
  * already the whole background here, so an index in the suit colour would be a
  * second statement of the one thing that needs no repeating — and unreadable
- * besides. The Wild's index sets its own four colours through `glyph__slot--N`,
- * which are more specific than these and correctly survive.
+ * besides.
+ *
+ * White on yellow is 1.6:1, and it is the heavy outline below — 10.7:1 on that
+ * yellow — that carries the shape, not the fill. That is how the printed card does
+ * it too. Do not thin `stroke-width` on a corner index without giving the fill a
+ * contrast of its own.
+ *
+ * The Wild's index keeps its four colours: `glyph__slot--N` is set on the path
+ * itself, and a declaration on the element beats a value inherited from an
+ * ancestor whatever their specificity — these two selectors are in fact equally
+ * specific.
  */
 .card__corner {
   --glyph: var(--card-face);
@@ -500,7 +513,7 @@ button.card--playable::after {
   padding-inline-end: calc(var(--hand-card, var(--card-w-md)) - var(--hand-strip, var(--card-w-md)));
   list-style: none;
   margin: 0;
-  min-height: calc(var(--card-w-md) * var(--hand-scale, 1) * 1.5 + 26px);
+  min-height: calc(var(--card-w-md) * var(--hand-scale, 1) * 88 / 56 + 26px);
 }
 
 /*
@@ -643,7 +656,7 @@ button.card--playable::after {
   display: grid;
   place-items: center;
   min-inline-size: calc(var(--card-w-lg) + 8px);
-  min-block-size: calc(var(--card-w-lg) * 1.5 + 8px);
+  min-block-size: calc(var(--card-w-lg) * 88 / 56 + 8px);
   transition: background-color var(--dur-base) var(--ease-out);
 }
 

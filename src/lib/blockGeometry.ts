@@ -38,9 +38,9 @@ export interface Shape {
 }
 
 /**
- * One solid in a drawing. Several parts make up a symbol — the four letters of
- * TAKI, a numeral and the little plus beside it — and each is extruded on its
- * own so the one nearer the viewer overlaps the one behind with a clean edge.
+ * One solid in a drawing. Several parts make up a symbol — the letters of the
+ * wordmark, the plus and the numeral of a "+2" — and each is extruded on its own
+ * so the one nearer the viewer overlaps the one behind with a clean edge.
  */
 export interface Part {
   readonly shapes: readonly Shape[];

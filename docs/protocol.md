@@ -155,8 +155,9 @@ from an older build still sends it, and dropping it would silently swallow their
 `acceptWildDrawFour` and `challengeWildDrawFour` are the two answers to an open Wild Draw
 Four: take the four cards, or call the bluff. Both are accepted **from the player the card
 was aimed at**, whose turn it is not — the turn is still with whoever played it. Everything
-else from another seat is `notYourTurn`, and an answer sent by anybody but the target is
-`notTheChallenger`.
+else from another seat is `notYourTurn`, an answer sent by anybody but the target is
+`notTheChallenger`, and every other command from every seat while a challenge is open is
+`awaitingChallenge` — the table is frozen behind it.
 
 `declareUno` and `catchUno` are the other out-of-turn actions, and they are
 unconditional on the turn: both are accepted from any seat at any moment, including while an

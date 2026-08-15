@@ -329,7 +329,7 @@ export interface PilesProps {
  * the colour that is currently in force.
  *
  * The active colour is drawn as a rail *around the discard pile* rather than as a
- * chip elsewhere on the screen. After a Change Colour the top card and the
+ * chip elsewhere on the screen. After a wild the top card and the
  * colour in force disagree, and that is exactly the moment a player needs the
  * two facts in one place.
  */

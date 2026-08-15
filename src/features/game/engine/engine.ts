@@ -152,14 +152,19 @@ function settleUnoWindows(draft: Draft, before: Readonly<Record<PlayerId, readon
  * of the window that answers "begins", and the stamp is the backstop for a turn
  * that ends without anybody acting at all.
  *
- * Everybody's, the actor's included, and the actor's costs nothing: a seat with an
- * open window is on one card by definition, and every turn action changes that
- * count — a play empties the hand and wins the round, a draw and a covered skip
- * both add a card, and a pass is refused until one of those has happened. So a
- * player is never catchable at the instant they act, and there is no stamp of
- * their own left to protect. Sparing it would be a special case for a state no
- * round can be in; the window that matters is closed by the *next* seat, and this
- * is where that happens.
+ * Everybody's, the actor's included, and the actor's costs nothing. A seat with an
+ * open window is on one card by definition, and every turn action either empties
+ * that hand, adds to it, or moves `turnSeq` past the stamp — so by the time the
+ * action has resolved there is nothing left to catch.
+ *
+ * There is exactly one action that does none of the three, and it is worth naming
+ * because the obvious statement of this rule is wrong: a draw against a pile with
+ * nothing left in it, discard included, takes no card at all. That can only be
+ * reached at two seats, where a Skip or a Reverse laid as the penultimate card
+ * hands the turn straight back to its owner. Sparing the stamp there would keep
+ * the seat catchable — and a catch would then draw two cards from the same empty
+ * pile, which is to say nothing. The old code kept the stamp and paid for a branch
+ * that could only ever change which event was logged.
  */
 function beginTurnAction(draft: Draft, actorId: PlayerId): void {
   void actorId;

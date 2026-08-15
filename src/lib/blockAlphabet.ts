@@ -256,42 +256,43 @@ const DIGITS: Record<number, readonly Shape[]> = {
 };
 
 /**
- * The bar under a 6 and a 9.
+ * The bar under a 6 and a 9, for the corner index alone.
  *
  * A 9 here is a 6 stood on its head — geometrically identical to one, not merely
  * similar — and a card prints its index at both ends with one of them turned
- * over. Without a bar, the bottom index of a 6 *is* a 9, which in a fanned hand
- * where only a corner shows is a card read as the wrong card. A printed deck
- * solves it the same way.
+ * over. So without something to break the symmetry the bottom index of a 6 *is*
+ * a 9, which in a fanned hand, where a corner is often all that shows, is a card
+ * read as the wrong card. A printed deck solves it the same way.
  *
- * Short, centred, and set well clear of the baseline — the numeral is extruded
- * about ten units down and to the left, so a bar any closer is swallowed by the
- * digit's own bottom wall and reads as a foot rather than a rule under it.
+ * Only the index, though, and that is the whole reason this is a parameter rather
+ * than part of the numeral. The bar sits below the baseline, so it grows the drawn
+ * body from 76 units to 98 — and because every symbol is fitted to the same box,
+ * a barred numeral comes out about a fifth smaller than an unbarred one. At the
+ * size of a corner index that is invisible. In the middle of the card it would
+ * put a visibly smaller 6 next to every 5, to solve an ambiguity the middle of
+ * the card does not have: the large numeral is always upright.
  *
- * It sits below the baseline, which grows the drawn body from 76 units to 100 and
- * so makes these two numerals a little smaller than their neighbours once each is
- * fitted to the same box. That is the trade, and it is the one the printed card
- * makes too.
+ * Thick, because the index is stroked heavily to survive being a few millimetres
+ * across, and a thin bar is swallowed whole by its own outline.
  */
 const UNDERBAR: Shape = {
   outer: [
-    [2, 92],
-    [53, 92],
-    [53, 100],
-    [2, 100],
+    [2, 84],
+    [53, 84],
+    [53, 98],
+    [2, 98],
   ],
 };
 
-/*
- * The 9 is the *bare* 6 turned over, and then underlined in its own right. Turning
- * an already-barred 6 would put the bar over the 9's head, which is an overline and
- * says nothing; both numerals are underlined on a printed card.
- */
-DIGITS[9] = [...turn(DIGITS[6]!, 27.5, 38), UNDERBAR];
-DIGITS[6] = [...DIGITS[6]!, UNDERBAR];
+/** A 9 is a 6 stood on its head, as it is in most geometric alphabets. */
+DIGITS[9] = turn(DIGITS[6]!, 27.5, 38);
 
-export function digit(value: number): readonly Shape[] {
-  return DIGITS[value] ?? DIGITS[1]!;
+/** The two numerals that are each other upside down, and need telling apart. */
+export const REVERSIBLE_DIGITS: readonly number[] = [6, 9];
+
+export function digit(value: number, underlined = false): readonly Shape[] {
+  const shapes = DIGITS[value] ?? DIGITS[1]!;
+  return underlined ? [...shapes, UNDERBAR] : shapes;
 }
 
 /* Letters -------------------------------------------------------------------- */
@@ -472,8 +473,8 @@ export function widthAt(shapes: readonly Shape[], capHeight: number): number {
 
 /**
  * Sets a character at a given cap height with its middle at (cx, cy). Used to
- * arrange TAKI in its block of four, where every letter must share a cap height
- * however wide or narrow it happens to be.
+ * arrange the wordmark's letters in one block, where every one of them must share
+ * a cap height however wide or narrow it happens to be.
  */
 export function setAt(shapes: readonly Shape[], cx: number, cy: number, capHeight: number): Shape[] {
   const box = extent(shapes);

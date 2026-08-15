@@ -3,7 +3,7 @@ import type { Card } from '../../engine/cards.ts';
 import { isNumberCard } from '../../engine/cards.ts';
 import { BlockArt } from '../../../../lib/BlockArt.tsx';
 import { arc, turn, type Box, type Part, type Pt, type Shape } from '../../../../lib/blockGeometry.ts';
-import { digit } from '../../../../lib/blockAlphabet.ts';
+import { digit, REVERSIBLE_DIGITS } from '../../../../lib/blockAlphabet.ts';
 
 /**
  * The card symbols.
@@ -219,18 +219,23 @@ function drawingFor(card: Card): Drawing {
 }
 
 /**
- * Corner indices are a few millimetres across, and the full drawing does not
- * always survive that. This is where a symbol too busy to shrink shows a
- * stand-in instead — the way the printed deck reduces its own indices to a mark.
+ * The corner index, where a symbol has to be *recognised* rather than read.
  *
- * Nothing needs one at present: the busiest symbol left is a plus beside a
- * numeral, which survives. Kept as a seam because the corner index is the one
- * place where a symbol has to be *recognised* rather than read, and the next card
- * added to the deck may well need one. The Wild has its own stand-in, taken
- * before this function is reached.
+ * A 6 and a 9 are one drawing turned over, and half the indices on a card are
+ * printed upside down — so in a fanned hand, where a leading corner is often all
+ * that shows, the two are the same mark. Underlined here, and only here: the
+ * numeral in the middle of the card is always upright and needs no help, and
+ * barring it would put a visibly smaller 6 beside every 5 to solve an ambiguity
+ * that half of the card does not have.
+ *
+ * Everything else survives being drawn a few millimetres across, including the
+ * busiest mark left in this deck — a plus beside a numeral. The Wild has its own
+ * stand-in, taken before this function is reached.
  */
 function indexFor(card: Card): Drawing | null {
-  void card;
+  if (isNumberCard(card) && REVERSIBLE_DIGITS.includes(card.value)) {
+    return { parts: [{ shapes: digit(card.value, true) }] };
+  }
   return null;
 }
 

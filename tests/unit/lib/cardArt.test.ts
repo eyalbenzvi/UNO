@@ -53,9 +53,15 @@ describe('the take-cards cards', () => {
     const faces = facesOf(card);
     expect(faces).toHaveLength(2);
 
-    // Paint order is back to front, and the drawing leans down-left, so the plus —
-    // which is behind — is painted first. Order the two by position, not by index.
-    const [plus, numeral] = faces.map((points) => boundsOf(points)).sort((a, b) => a.minX - b.minX);
+    /*
+     * Taken in paint order, not sorted into it. The drawing leans down and to the
+     * left and `buildSolids` paints along that axis, so the plus — which is behind
+     * — is emitted first and the numeral laps over it. Sorting the two by position
+     * would define the answer this test is asking for: whichever came out on the
+     * left would be named "plus", and "the plus is left of the numeral" would then
+     * be true of the layout this replaced as well as of the one it asserts.
+     */
+    const [plus, numeral] = faces.map((points) => boundsOf(points));
     if (!plus || !numeral) {
       throw new Error('the mark is two solids: a plus and a numeral');
     }
@@ -84,9 +90,12 @@ describe('the numerals', () => {
    * bottom index of a 6 *is* a 9. In a fanned hand, where the leading corner is
    * often all that shows, that is a card read as the wrong card.
    */
-  it('tell a 6 from a 9 however the card is turned', () => {
-    const six = digit(6).flatMap((shape) => shape.outer);
-    const nine = digit(9).flatMap((shape) => shape.outer);
+  it('tell a 6 from a 9 in the corner index, which is printed both ways up', () => {
+    // The underlined forms — what a corner index draws. The bare forms in the
+    // middle of the card are deliberately one drawing turned over, and need not be
+    // told apart: that numeral is always upright.
+    const six = digit(6, true).flatMap((shape) => shape.outer);
+    const nine = digit(9, true).flatMap((shape) => shape.outer);
     expect(six).toHaveLength(nine.length);
 
     const bounds = boundsOf(six);
@@ -95,7 +104,8 @@ describe('the numerals', () => {
     const turned = six.map(([x, y]) => [2 * cx - x, 2 * cy - y] as const);
 
     // Turning a 6 over must not produce this deck's 9. Compared as sets of points,
-    // because the two rings need not start at the same corner.
+    // because the two rings need not start at the same corner. Without the bar the
+    // two are equal to the last decimal, which is exactly the defect.
     const key = (points: ReadonlyArray<readonly [number, number]>) =>
       [...points.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`)].sort().join('|');
     expect(key(turned)).not.toBe(key(nine));
@@ -112,9 +122,20 @@ describe('the Wild', () => {
     const slots = [...markup.matchAll(/glyph__slot--(\d)/g)].map(([, slot]) => Number(slot));
     expect([...slots].sort()).toEqual([0, 1, 2, 3]);
 
-    // Every quarter starts at the same point — the centre of the oval — which is
-    // what makes them quarters of one shape rather than four shapes.
-    const starts = [...markup.matchAll(/d="M([\d.]+) ([\d.]+)/g)].map(([, x, y]) => `${x} ${y}`);
-    expect(new Set(starts).size).toBe(1);
+    /*
+     * Four paths, no more, and every one of them beginning at the centre of the
+     * oval: that shared vertex is the whole difference between four quarters of one
+     * shape and four shapes standing near each other.
+     *
+     * The sign in the coordinate pattern matters more than it looks. Without it the
+     * four separate cubes this replaced also passed — their negative start points
+     * simply did not match, leaving one path per cube whose `d` was identical
+     * because a cube was positioned by a transform rather than by its own geometry.
+     */
+    const paths = [...markup.matchAll(/d="M(-?[\d.]+) (-?[\d.]+)/g)].map(
+      ([, x, y]) => `${Number(x)} ${Number(y)}`,
+    );
+    expect(paths).toHaveLength(4);
+    expect(new Set(paths)).toEqual(new Set(['50 50']));
   });
 });

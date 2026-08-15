@@ -97,6 +97,12 @@ re-decides on the state the draw produced: the drawn card if it is playable, and
 button that ends the turn. Nothing else in the hand is considered, because nothing else in the
 hand is legal any more.
 
+**A pile with nothing left in it**, discard included, is the one case where the robot ends its
+turn without having drawn. A draw would take no card, so `drawnCardId` would stay empty and the
+branch above would never be reached — the robot would ask the pile for a card for ever, on an
+accepted command that changes nothing and therefore resets every deadline that would otherwise
+rescue the seat.
+
 **A challenge** is answered on what a person can see: how many cards the player who laid the
 Wild Draw Four is holding. Many cards means they were likelier to have held the colour, so a
 bluff is likelier and calling it pays; a player down to their last card or two had few chances
@@ -122,8 +128,9 @@ against one.
   first.
 - It never calls out somebody who is not there — they cannot shout, so that would be farming
   rather than catching. A seat a robot is _playing_ is fair game: the robot can shout.
-- It never calls out a seat the table has been asked to go easy on, and never aims a Draw Two,
-  a Wild Draw Four or a Skip at one. See **Going easy** below.
+- It never calls out a seat the table has been asked to go easy on, never challenges one, and
+  never aims a Draw Two, a Wild Draw Four, a Skip or (at two seats, where it is a Skip) a
+  Reverse at one. See **Going easy** below.
 
 ## Going easy
 

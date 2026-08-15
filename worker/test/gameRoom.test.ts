@@ -24,14 +24,14 @@ import {
 const CREATE = { create: { maxPlayers: 4, tableLanguage: 'he' as const } };
 
 /**
- * A seed a staircase actually finishes under.
+ * A seed a whole points match actually finishes under.
  *
- * A stairs round is thirty-six cards a player rather than eight, so it is long
- * enough that the move ceiling in `playOut` is a real bound rather than a formality
- * — and a fixed seed is what makes "it finished" a fact about the rules instead of a
- * coin toss that will one day land the other way in CI.
+ * A match to 500 is several rounds rather than one, so it is long enough that the
+ * move ceiling in `playOut` is a real bound rather than a formality — and a fixed
+ * seed is what makes "it finished" a fact about the rules instead of a coin toss
+ * that will one day land the other way in CI.
  */
-const STAIRS_SEED = { seed: 20260810 };
+const MATCH_SEED = { seed: 20260810 };
 
 /** A room with two seated players and a round in play. */
 function dealtTable(options?: ConstructorParameters<typeof Harness>[0]) {
@@ -869,7 +869,7 @@ describe('the points match', () => {
   const POINTS = { create: { maxPlayers: 4, tableLanguage: 'he' as const, gameMode: 'points' as const } };
 
   it('deals the round in the mode the table was opened with', () => {
-    const table = new Harness(STAIRS_SEED);
+    const table = new Harness(MATCH_SEED);
     const creator = table.join('Dana', POINTS);
     const guest = table.join('Yoni');
     creator.client.say('roomCommand', { command: { type: 'startGame' } });
@@ -882,7 +882,7 @@ describe('the points match', () => {
   });
 
   it('scores the round to the winner and keeps a running total', () => {
-    const table = new Harness(STAIRS_SEED);
+    const table = new Harness(MATCH_SEED);
     const creator = table.join('Dana', POINTS);
     const guest = table.join('Yoni');
     creator.client.say('roomCommand', { command: { type: 'startGame' } });
@@ -900,7 +900,7 @@ describe('the points match', () => {
   });
 
   it('ends the match when somebody crosses the target, and a new round starts a new one', () => {
-    const table = new Harness(STAIRS_SEED);
+    const table = new Harness(MATCH_SEED);
     const creator = table.join('Dana', POINTS);
     const guest = table.join('Yoni');
     creator.client.say('roomCommand', { command: { type: 'startGame' } });

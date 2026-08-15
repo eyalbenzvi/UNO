@@ -23,7 +23,7 @@ export interface ColorPickerModalProps {
 }
 
 /**
- * The colour choice for Change Colour.
+ * The colour a wild is played as.
  *
  * Four large targets, each carrying a colour, a shape and its name, so the choice
  * is never colour alone. The card being played is shown beside them: this dialog

@@ -103,7 +103,7 @@ export function assistedSeats(players: readonly EnginePlayer[], assist: AssistWe
  * deliberately *not* the robot's `scoreCard`: that one answers "which of these
  * should I play now", which is a question about the table. This one answers "is this
  * a card I would like to be holding", which is a question about the card. They
- * disagree on purpose — a Change Colour is the last thing a robot spends and among
+ * disagree on purpose — a Wild is the last thing a robot spends and among
  * the first things anybody wants to have.
  */
 const CARD_WORTH: Readonly<Record<Card['kind'], number>> = {

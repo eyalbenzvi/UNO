@@ -1,5 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
-import { expectDealt, awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp } from './helpers.ts';
+import {
+  expectDealt,
+  awaitSettled,
+  canDrawFrom,
+  createRoom,
+  joinRoom,
+  onTurn,
+  openApp,
+  tapIfPresent,
+} from './helpers.ts';
 
 /**
  * The table has to fit the screen it is on.
@@ -97,9 +106,23 @@ async function measure(page: Page): Promise<Report> {
   });
 }
 
-/** Both players draw in turn, which grows both hands one card at a time. */
+/**
+ * Both players draw in turn and play nothing, which grows both hands one card at
+ * a time.
+ *
+ * Two things about UNO's draw rule make this more than a loop of taps, and this
+ * helper got both wrong until the hands stopped growing past the eight they were
+ * dealt. A draw does **not** end the turn, so the seat that has drawn holds the
+ * table until it says otherwise — nobody else can draw, and the loop starves. And
+ * the pile refuses a second card with `aria-disabled`, not `disabled`, so
+ * `isEnabled()` reports a blocked pile as ready and the tap is swallowed.
+ *
+ * So: answer anything that has the table frozen, draw once through the check that
+ * actually knows whether the pile is open, and then end the turn deliberately.
+ * Never play a card — a hand this asks to grow must not shrink under it.
+ */
 async function growHand(page: Page, other: Page, target: number): Promise<number> {
-  for (let step = 0; step < target * 3; step += 1) {
+  for (let step = 0; step < target * 4; step += 1) {
     const held = await page.locator('.hand .card').count();
     if (held >= target) {
       return held;
@@ -107,13 +130,21 @@ async function growHand(page: Page, other: Page, target: number): Promise<number
     for (const actor of [page, other]) {
       await actor.bringToFront();
       await awaitSettled(actor);
+      // An open Wild Draw Four suspends the turn order until its target answers.
+      if (await tapIfPresent(actor, 'Take four')) {
+        continue;
+      }
       if (!(await onTurn(actor))) {
         continue;
       }
-      const pile = actor.locator('.pile button.card--back');
-      if (await pile.isEnabled().catch(() => false)) {
-        await pile.click().catch(() => undefined);
+      if (await canDrawFrom(actor)) {
+        await actor
+          .locator('.pile button.card--back')
+          .click()
+          .catch(() => undefined);
+        await awaitSettled(actor);
       }
+      await tapIfPresent(actor, 'End my turn');
     }
   }
   return page.locator('.hand .card').count();

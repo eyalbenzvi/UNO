@@ -73,9 +73,9 @@ Exact counts per area (from `vitest --reporter=json`):
   86  tests/unit/state/*          persistence, selectors, storeFlow, beat, winHold
  101  tests/unit/lib/*            sanitize, storage, qr, audio, haptics, motion, misc, cardArt
  131  tests/unit/ui/*             cardText, eventText, choreograph, handLayout, anchors
-  71  tests/unit/bot/*            policy, runner, leniency, names
+  72  tests/unit/bot/*            policy, runner, leniency, names
   19  tests/unit/i18n.test.ts     dictionary parity and interpolation
- 180  tests/component/*           landing, forms, lobby, game, gameOver, table, flightLayer
+ 179  tests/component/*           landing, forms, lobby, game, gameOver, table, flightLayer
  ----
  880  total
 ```
@@ -251,7 +251,7 @@ Performed against the production build. WebRTC items require two devices.
 - [x] Playing off-turn is impossible from the UI and rejected by the host if forced.
 - [x] Stop skips correctly with 3+ players and returns the turn with 2.
 - [x] Plus keeps the turn; the draw pile is disabled while a legal card is held.
-- [x] Change Direction reverses the order visibly.
+- [x] Reverse turns the order of play visibly.
 - [x] Colour Change and UNO open the colour modal; the choice shows in the indicator.
 - [x] a drawn turn: only the drawn card is lit, the rest of the hand is refused, ending the turn works.
 - [x] Draw pile recycles when empty; the visible top card is preserved.

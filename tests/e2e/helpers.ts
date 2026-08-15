@@ -118,6 +118,21 @@ export async function canDrawFrom(page: Page): Promise<boolean> {
 export async function takeAnyTurn(page: Page): Promise<boolean> {
   await page.bringToFront();
   await awaitSettled(page);
+
+  /*
+   * An open Wild Draw Four comes before the turn check, because it suspends the
+   * turn order: the turn stays with whoever played the card, and nothing at the
+   * table can move until the seat it was aimed at answers. A driver that only knew
+   * about turns would sit here watching a frozen table until its budget ran out —
+   * which is exactly what it did.
+   *
+   * It takes the cards rather than calling the bluff. A challenge is a gamble, and
+   * a gamble makes a driven round come out differently every run.
+   */
+  if (await tapIfPresent(page, 'Take four')) {
+    return true;
+  }
+
   if (!(await onTurn(page))) {
     return false;
   }

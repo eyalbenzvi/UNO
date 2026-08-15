@@ -770,11 +770,6 @@
   inline-size: 6.25rem;
 }
 
-.brand__super {
-  fill: var(--card-outline);
-  letter-spacing: 0.08em;
-}
-
 /*
  * The same three tones and the same outlined-every-edge treatment the cards use,
  * at the mark's own scale.
@@ -820,10 +815,6 @@
  * The bar sits on a tinted surface, and the mark's SUPER is near-black; in the
  * dark theme it would disappear, so it borrows the page's text colour there.
  */
-:root[data-theme='dark'] .brand__super {
-  fill: var(--text);
-}
-
 /* Code and links ----------------------------------------------------------- */
 
 .code-value {
