@@ -246,7 +246,7 @@ describe('hand display order', () => {
       { id: 'd', kind: 'skip', color: 'red' },
       { id: 'e', kind: 'number', color: 'red', value: 1 },
       { id: 'f', kind: 'number', color: 'yellow', value: 5 },
-      { id: 'g', kind: 'king' },
+      { id: 'g', kind: 'wildDrawFour' },
     ];
     expect(sortHandForDisplay(hand).map((card) => card.id)).toEqual(['e', 'c', 'd', 'f', 'b', 'a', 'g']);
   });

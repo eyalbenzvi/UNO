@@ -183,7 +183,8 @@ export function buildDeck(): Card[] {
 
   for (const color of CARD_COLORS) {
     for (const value of NUMBER_VALUES) {
-      const copies = value === 0 ? DECK_COMPOSITION.zeroCopiesPerColor : DECK_COMPOSITION.numberCopiesPerColor;
+      const copies =
+        value === 0 ? DECK_COMPOSITION.zeroCopiesPerColor : DECK_COMPOSITION.numberCopiesPerColor;
       for (let copy = 0; copy < copies; copy += 1) {
         push({ id: `n-${color}-${value}-${copy}`, kind: 'number', color, value });
       }

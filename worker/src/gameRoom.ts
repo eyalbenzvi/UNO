@@ -165,9 +165,7 @@ function buildCommand(playerId: string, action: GameAction): GameCommand {
  * happened to agree, and a pair like that only has to drift once — in the direction
  * where a replayed action ends an innocent player's turn.
  */
-const TURN_SCOPED: ReadonlySet<GameAction['type']> = new Set<GameAction['type']>(
-  TURN_SCOPED_ACTIONS,
-);
+const TURN_SCOPED: ReadonlySet<GameAction['type']> = new Set<GameAction['type']>(TURN_SCOPED_ACTIONS);
 
 /**
  * Nothing is ever booked closer than this to now.
@@ -2738,6 +2736,15 @@ export class GameRoom {
       drawPile: [...game.drawPile, ...hand.slice(size)],
       unoExposed: exposed,
     });
+  }
+
+  /** Test seam: puts a seat's running match total near the target. */
+  forcePointsForTests(playerId: string, points: number): void {
+    const seat = this.seatFor(playerId);
+    if (seat !== undefined) {
+      seat.points = points;
+      this.roomDirty = true;
+    }
   }
 
   /** Test seam: opens a Wild Draw Four window waiting on one seat. */

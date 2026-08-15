@@ -5,15 +5,12 @@ import type { BotMove } from '../../../src/features/game/bot/policy.ts';
 import { createRng, nextFloat } from '../../../src/features/game/engine/prng.ts';
 import type { GameState } from '../../../src/features/game/engine/state.ts';
 import { cards, makeState, players } from '../helpers/engineFixtures.ts';
-import { PLAY_REMOTE_MS } from '../../../src/features/game/ui/choreograph.ts';
 import {
   BOT_ANSWER_MAX_MS,
   BOT_ANSWER_MIN_MS,
   BOT_CATCH_MIN_MS,
   BOT_DECLARE_MAX_MS,
   BOT_DECLARE_MIN_MS,
-  BOT_SEQUENCE_MAX_MS,
-  BOT_SEQUENCE_MIN_MS,
   BOT_THINK_MAX_MS,
   BOT_THINK_MIN_MS,
 } from '../../../src/features/game/network/timing.ts';

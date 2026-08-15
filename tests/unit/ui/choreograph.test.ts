@@ -406,28 +406,27 @@ describe('what each event is worth in sound', () => {
     return cueFor(beatOf(events), me);
   }
 
-  it('says nothing for the sixteen events that are deliberately silent', () => {
+  it('says nothing for the events that are deliberately silent', () => {
     const silent: GameEvent[] = [
       { type: 'gameStarted', firstPlayerId: THEM, activeColor: 'red' },
-      { type: 'takiOpened', playerId: THEM, color: 'red', superTaki: false },
-      { type: 'takiClosed', playerId: THEM, cardsPlayed: 3 },
+      { type: 'turnPassed', playerId: THEM },
       { type: 'colorChosen', playerId: THEM, color: 'blue' },
       { type: 'playerSkipped', playerId: THEM },
-      // The King that cancelled the run is a `cardPlayed` in the same beat, and
-      // that already makes the sound. A second one for the relief is noise.
-      { type: 'drawRunCancelled', playerId: THEM, cancelled: 4 },
-      { type: 'plusThreePlayed', playerId: THEM },
-      { type: 'plusThreeBroken', playerId: THEM, targetId: THIRD },
-      { type: 'breakerSpent', playerId: THEM, penalty: 3 },
+      // The card that opened the window is a `cardPlayed` in the same beat, and
+      // that already makes the sound. A second one for the threat is noise.
+      { type: 'challengeOpened', playerId: THEM, targetId: THIRD },
+      { type: 'challengeDeclined', playerId: THIRD, drawn: 4 },
       { type: 'directionChanged', direction: -1 },
-      { type: 'extraTurn', playerId: THEM },
       { type: 'drawPileRecycled', count: 30 },
       { type: 'drawPileExhausted' },
+      // The round's score lands in the same beat as the win, which is already as
+      // loud as this game gets.
+      { type: 'roundScored', playerId: THEM, points: 80 },
       { type: 'turnSkipped', playerId: THEM, drew: 0 },
       { type: 'playerLeft', playerId: THEM },
       { type: 'roundAbandoned' },
     ];
-    expect(silent).toHaveLength(16);
+    expect(silent).toHaveLength(13);
     for (const event of silent) {
       expect(cue([event]), event.type).toBeNull();
     }

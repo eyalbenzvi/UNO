@@ -195,7 +195,7 @@ describe('the head start on a last card', () => {
     table.advance(LAST_CARD_GRACE_MS + 50);
     creator.client.forget();
     creator.client.say('action', {
-      action: { type: 'catchLastCard', targetId: child.playerId },
+      action: { type: 'catchUno', targetId: child.playerId },
       requestId: 'rq-early',
     });
     expect(creator.client.expect('actionRejected').payload.code).toBe('nothingToCatch');
@@ -204,7 +204,7 @@ describe('the head start on a last card', () => {
     table.advance(catchGraceMs(2, 0));
     creator.client.forget();
     creator.client.say('action', {
-      action: { type: 'catchLastCard', targetId: child.playerId },
+      action: { type: 'catchUno', targetId: child.playerId },
       requestId: 'rq-late',
     });
     expect(creator.client.expect('actionAccepted').payload.requestId).toBe('rq-late');
@@ -222,7 +222,7 @@ describe('the head start on a last card', () => {
 
     child.client.forget();
     child.client.say('action', {
-      action: { type: 'catchLastCard', targetId: creator.playerId },
+      action: { type: 'catchUno', targetId: creator.playerId },
       requestId: 'rq-now',
     });
     expect(child.client.expect('actionAccepted').payload.requestId).toBe('rq-now');
@@ -254,6 +254,9 @@ describe('an ordinary table', () => {
     });
     creator.client.say('roomCommand', { command: { type: 'startGame' } });
     expect(settingsOf(creator.client)).toEqual({ level: 'off', playerIds: [] });
-    expect(creator.client.state?.players.every((player) => player.cardCount === 8)).toBe(true);
+    // An opening Draw Two lands on the first player, so a hand can honestly be nine.
+    expect(
+      creator.client.state?.players.every((player) => player.cardCount === 7 || player.cardCount === 9),
+    ).toBe(true);
   });
 });

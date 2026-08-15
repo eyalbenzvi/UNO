@@ -236,7 +236,13 @@ const rngStateSchema = z.object({ seed: z.number().int() });
 export const gameStateSchema = z.object({
   version: z.number().int().nonnegative(),
   phase: z.enum(['playing', 'finished']),
-  mode: z.enum(['classic', 'points']),
+  /*
+   * Defaulted, like every field added to this record since it was first written.
+   * A round persisted by an older deployment must reload as the round it was being
+   * played as rather than be discarded — and for a live round, discarding it means
+   * discarding every hand at the table.
+   */
+  mode: z.enum(['classic', 'points']).default('classic'),
   players: z
     .array(z.object({ id: playerId, name: z.string().min(1).max(32), left: z.boolean().optional() }))
     .min(2)
@@ -248,7 +254,7 @@ export const gameStateSchema = z.object({
    * a hand dealt generously cannot be drawn into meanly because somebody opened the
    * settings mid-round.
    */
-  assist: z.record(playerId, z.number().int().min(0).max(3)),
+  assist: z.record(playerId, z.number().int().min(0).max(3)).default({}),
   hands: z.record(playerId, z.array(cardSchema).max(200)),
   drawPile: z.array(cardSchema).max(200),
   discardPile: z.array(cardSchema).max(200),
@@ -267,9 +273,9 @@ export const gameStateSchema = z.object({
   challenge: z.object({ playerId, targetId: playerId, bluffed: z.boolean() }).nullable(),
   declaredUno: z.array(playerId).max(6),
   /** Seats on one uncalled card, and the turn each became catchable on. */
-  unoExposed: z.record(playerId, z.number().int().nonnegative()),
+  unoExposed: z.record(playerId, z.number().int().nonnegative()).default({}),
   /** What each seat scored in the round just ended. Empty while one is in play. */
-  points: z.record(playerId, z.number().int().min(0).max(2000)),
+  points: z.record(playerId, z.number().int().min(0).max(2000)).default({}),
   rng: rngStateSchema,
   winnerId: playerId.nullable(),
   endReason: z.enum(['won', 'abandoned']).nullable(),

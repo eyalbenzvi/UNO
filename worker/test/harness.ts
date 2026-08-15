@@ -41,6 +41,17 @@ export class TestClient implements RoomSocket {
    */
   state: PublicGameState | null = null;
   hand: readonly Card[] = [];
+  /** The card this seat has drawn this turn, from its own private message. */
+  drawnCardId: string | null = null;
+  /**
+   * This client's own seat id, as the room assigned it.
+   *
+   * Learned from `joinAccepted` rather than passed in, exactly as a real client
+   * learns it — and needed here because a Wild Draw Four names the one seat that may
+   * answer it, so a client that did not know its own id would sit out the only move
+   * that unfreezes the table.
+   */
+  playerId: string | null = null;
   lobby: LobbySnapshot | null = null;
 
   constructor(
@@ -62,9 +73,11 @@ export class TestClient implements RoomSocket {
         break;
       case 'privateHand':
         this.hand = message.payload.hand.cards;
+        this.drawnCardId = message.payload.hand.drawnCardId ?? null;
         break;
       case 'joinAccepted':
         this.lobby = message.payload.lobby;
+        this.playerId = message.payload.playerId;
         break;
       case 'lobbyState':
         this.lobby = message.payload.lobby;
@@ -78,6 +91,9 @@ export class TestClient implements RoomSocket {
     this.closed ??= { code, reason };
   }
 
+  /** Every action this client sent, newest last. A trace seam for the round loops. */
+  readonly sentActions: unknown[] = [];
+
   /** Sends a client message, as a real socket would deliver it. */
   say<TType extends ClientMessage['type']>(
     type: TType,
@@ -88,6 +104,9 @@ export class TestClient implements RoomSocket {
       type,
       payload as never,
     );
+    if (type === 'action') {
+      this.sentActions.push((payload as { action?: unknown }).action);
+    }
     this.room.room.handleMessage(this, JSON.stringify(message));
   }
 
@@ -142,13 +161,39 @@ export class TestClient implements RoomSocket {
       throw new Error(`${this.label} has no table to play against`);
     }
 
-    // An open +3 freezes every other seat until it is answered, so it comes first.
-    if (state.plusThree !== null) {
-      const breaker = this.hand.find((card) => card.kind === 'breakPlusThree');
-      this.say('action', {
-        action: breaker ? { type: 'playCard', cardId: breaker.id } : { type: 'passBreak' },
-        requestId,
-      });
+    /*
+     * A Wild Draw Four freezes every other seat until its victim answers, so it
+     * comes first — and this harness always takes the cards rather than calling the
+     * bluff, because a challenge is a gamble and a loop that gambled would produce a
+     * different round every time the scoring changed.
+     */
+    if (state.challenge !== null) {
+      if (state.challenge.targetId === this.playerId) {
+        this.say('action', { action: { type: 'acceptWildDrawFour' }, requestId });
+      }
+      return;
+    }
+
+    /*
+     * A card already drawn this turn is the only one the table will accept, so the
+     * turn narrows to playing it or ending the turn. Answering anything else here
+     * would send a move the room refuses, and a refusal changes no version — so the
+     * loop would spin rather than advance.
+     */
+    if (state.hasDrawn) {
+      const drawnId = this.drawnCardId;
+      const drawn = drawnId === null ? undefined : this.hand.find((card) => card.id === drawnId);
+      const context = playContextFromPublic(state);
+      if (drawn !== undefined && getPlayableCardIds([drawn], context).length > 0) {
+        this.say('action', {
+          action: requiresColorChoice(drawn)
+            ? { type: 'playCard', cardId: drawn.id, chosenColor: this.bestColor() }
+            : { type: 'playCard', cardId: drawn.id },
+          requestId,
+        });
+        return;
+      }
+      this.say('action', { action: { type: 'passTurn' }, requestId });
       return;
     }
 
@@ -164,17 +209,11 @@ export class TestClient implements RoomSocket {
       return;
     }
 
-    // Nothing to play. Inside a sequence of my own that means closing it; drawing is
-    // refused during a Taki, which is the rule the engine enforces here.
-    if (state.takiMode !== null && state.takiMode.playerId === state.currentPlayerId) {
-      this.say('action', { action: { type: 'closeTaki' }, requestId });
-      return;
-    }
     this.say('action', { action: { type: 'drawCard' }, requestId });
   }
 
   /** The colour this hand has most of, for a wild card. */
-  private bestColor(): 'red' | 'blue' | 'green' | 'yellow' {
+  private bestColor(): 'red' | 'yellow' | 'green' | 'blue' {
     const counts = new Map<string, number>();
     for (const card of this.hand) {
       const color = cardColor(card);

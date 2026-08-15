@@ -368,9 +368,7 @@ export function GameScreen(): ReactNode {
           canDraw={canDraw}
           onDraw={drawCard}
           onDrawBlocked={onRefuse}
-          drawBlockedReason={
-            publicState.hasDrawn ? t('reject.alreadyDrew') : t('game.drawPileBlocked')
-          }
+          drawBlockedReason={publicState.hasDrawn ? t('reject.alreadyDrew') : t('game.drawPileBlocked')}
         />
       </div>
 

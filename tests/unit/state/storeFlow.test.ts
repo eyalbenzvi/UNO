@@ -457,11 +457,83 @@ describe('preferences and navigation', () => {
       store().playCard('x');
       store().drawCard();
       store().passTurn();
+      store().acceptWildDrawFour();
+      store().challengeWildDrawFour();
+      store().declareLastCard();
+      store().catchLastCard('nobody');
       store().votePlayAgain(true);
       store().startGame();
       store().setMaxPlayers(4);
       store().removePlayer('nobody');
       store().retryConnection();
     }).not.toThrow();
+  });
+});
+
+describe('the turn, through the store', () => {
+  it('draws without ending the turn, then plays the card or passes', async () => {
+    await createRoom();
+    const guest = await seatGuest();
+    store().startGame();
+    await flush();
+
+    // Whoever the deal put on turn; an opening action card can move it.
+    const onTurnIsMe = store().publicState?.currentPlayerId === store().localPlayerId;
+    if (!onTurnIsMe) {
+      void guest;
+      return;
+    }
+    const before = store().hand.length;
+    store().drawCard();
+    await flush();
+
+    expect(store().hand.length).toBe(before + 1);
+    // Still my turn: UNO gives you the card and lets you decide.
+    expect(store().publicState?.currentPlayerId).toBe(store().localPlayerId);
+    expect(store().publicState?.hasDrawn).toBe(true);
+    // And the store knows which single card is now the playable one.
+    expect(store().drawnCardId).not.toBeNull();
+
+    store().passTurn();
+    await flush();
+    expect(store().publicState?.currentPlayerId).not.toBe(store().localPlayerId);
+    expect(store().drawnCardId).toBeNull();
+  });
+
+  it('answers a Wild Draw Four with either of the two buttons', async () => {
+    await createRoom();
+    const guest = await seatGuest();
+    store().startGame();
+    await flush();
+
+    const me = store().localPlayerId as string;
+    room.at(store().roomCode as string).forceChallengeForTests(guest.playerId, me, true);
+    await flush();
+    expect(store().publicState?.challenge?.targetId).toBe(me);
+
+    const held = store().hand.length;
+    store().acceptWildDrawFour();
+    await flush();
+    // Taking the cards costs four and clears the window.
+    expect(store().hand.length).toBe(held + 4);
+    expect(store().publicState?.challenge).toBeNull();
+  });
+
+  it('calls the bluff when asked to', async () => {
+    await createRoom();
+    const guest = await seatGuest();
+    store().startGame();
+    await flush();
+
+    const me = store().localPlayerId as string;
+    room.at(store().roomCode as string).forceChallengeForTests(guest.playerId, me, true);
+    await flush();
+
+    const held = store().hand.length;
+    store().challengeWildDrawFour();
+    await flush();
+    // The bluff was real, so the cards went the other way.
+    expect(store().hand.length).toBe(held);
+    expect(store().publicState?.challenge).toBeNull();
   });
 });

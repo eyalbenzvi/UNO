@@ -585,11 +585,7 @@ function applyPlayCard(
    * "the card left me on one" is only true once the hand has settled, and nothing
    * below this point adds to or removes from *this* player's hand.
    */
-  if (
-    declareUno &&
-    (draft.hands[playerId] ?? []).length === 1 &&
-    !draft.declaredUno.includes(playerId)
-  ) {
+  if (declareUno && (draft.hands[playerId] ?? []).length === 1 && !draft.declaredUno.includes(playerId)) {
     draft.declaredUno.push(playerId);
     events.push({ type: 'unoDeclared', playerId });
   }

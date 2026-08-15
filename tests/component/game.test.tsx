@@ -36,7 +36,7 @@ function situation(options: {
       currentPlayerId: (options.myTurn ?? true) ? HOST_ID : GUEST_ID,
       discardTop: options.discardTop,
       activeColor: options.activeColor,
-      hasDrawn: options.hasDrawn ?? options.drawnCardId != null,
+      hasDrawn: options.hasDrawn ?? typeof options.drawnCardId === 'string',
       challenge: options.challenge ?? null,
       players: [
         { id: HOST_ID, name: 'דנה', cardCount: options.hand.length },

@@ -102,9 +102,7 @@ export function makeState(overrides: StateOverrides = {}): GameState {
       list
         .filter(
           (player) =>
-            player.left !== true &&
-            (hands[player.id] ?? []).length === 1 &&
-            !declaredUno.includes(player.id),
+            player.left !== true && (hands[player.id] ?? []).length === 1 && !declaredUno.includes(player.id),
         )
         .map((player) => [player.id, turnSeq]),
     );

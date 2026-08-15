@@ -48,9 +48,7 @@ describe('drawing', () => {
   it('lets the drawn card be played, when it fits', () => {
     const { state: drew } = expectOk(applyCommand(table(), { type: 'drawCard', playerId: 'p-alice' }));
     const drawn = drew.drawnCardId as string;
-    const { state } = expectOk(
-      applyCommand(drew, { type: 'playCard', playerId: 'p-alice', cardId: drawn }),
-    );
+    const { state } = expectOk(applyCommand(drew, { type: 'playCard', playerId: 'p-alice', cardId: drawn }));
     expect(state.hands['p-alice']).toHaveLength(2);
     expect(state.drawnCardId).toBeNull();
     expect(state.players[state.currentPlayerIndex]?.id).toBe('p-bob');

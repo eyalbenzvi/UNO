@@ -205,9 +205,9 @@ describe('host message validation', () => {
     expect(parsed.success && parsed.data.mode).toBe('points');
     // Absent rather than nought while the round is in play: a score nobody has
     // earned yet must not be renderable as one.
-    expect(
-      parsed.success && parsed.data.players.every((player) => player.roundPoints === undefined),
-    ).toBe(true);
+    expect(parsed.success && parsed.data.players.every((player) => player.roundPoints === undefined)).toBe(
+      true,
+    );
   });
 
   it('rejects a rejection code that is not part of the engine', () => {

@@ -1,14 +1,7 @@
 import type { Card, CardColor, CardId } from './cards.ts';
 import { topCard } from './engine.ts';
 import type { PlayContext } from './rules.ts';
-import type {
-  GameEndReason,
-  GameMode,
-  GamePhase,
-  GameState,
-  PlayerId,
-  TurnDirection,
-} from './state.ts';
+import type { GameEndReason, GameMode, GamePhase, GameState, PlayerId, TurnDirection } from './state.ts';
 
 export interface PublicPlayerView {
   readonly id: PlayerId;

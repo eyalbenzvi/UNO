@@ -125,9 +125,7 @@ describe('what the standings show', () => {
   });
 
   it('ranks by cards left, with ties sharing a place', () => {
-    const { state } = finish(
-      roundEndingWith('points', { 'p-bob': ['blue:7'], 'p-cara': ['green:3'] }),
-    );
+    const { state } = finish(roundEndingWith('points', { 'p-bob': ['blue:7'], 'p-cara': ['green:3'] }));
     const rows = computeStandings(toPublicGameState(state));
     expect(rows.map((row) => row.rank)).toEqual([1, 2, 2]);
   });

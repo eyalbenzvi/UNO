@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../../../src/features/game/engine/engine.ts';
-import { cards, eventTypes, expectOk, expectRejected, makeState, players } from '../helpers/engineFixtures.ts';
+import {
+  cards,
+  eventTypes,
+  expectOk,
+  expectRejected,
+  makeState,
+  players,
+} from '../helpers/engineFixtures.ts';
 
 function playFirst(state: ReturnType<typeof makeState>, playerId: string, chosenColor?: 'red' | 'blue') {
   const cardId = (state.hands[playerId] ?? [])[0]!.id;

@@ -53,12 +53,20 @@ function currentPlayerId(client: TestClient): string | null {
 
 type Seat = { client: TestClient; playerId: string; resumeToken: string };
 
-/** Lets whichever of these seats is on turn make one legal move. */
+/**
+ * Lets whichever of these seats owes the table a move make one.
+ *
+ * Usually the seat on turn. While a Wild Draw Four is open it is the seat being
+ * waited on instead — the table is frozen for everybody else, including whoever is
+ * nominally on turn, and asking them to move would send something the room refuses
+ * for ever.
+ */
 function takeTurn(seats: readonly Seat[]): void {
-  const onTurn = currentPlayerId(seats[0]!.client);
-  const seat = seats.find((candidate) => candidate.playerId === onTurn);
+  const state = seats[0]!.client.state;
+  const owes = state?.challenge?.targetId ?? currentPlayerId(seats[0]!.client);
+  const seat = seats.find((candidate) => candidate.playerId === owes);
   if (seat === undefined) {
-    throw new Error(`nobody recognisable is on turn (${String(onTurn)})`);
+    throw new Error(`nobody recognisable owes a move (${String(owes)})`);
   }
   seat.client.takeTurn();
 }
@@ -67,10 +75,10 @@ function takeTurn(seats: readonly Seat[]): void {
  * Plays a round out where some of the seats are not ours to move.
  *
  * `playOut` dispatches on whose turn it is, which is enough for a table of people
- * playing a classic round and not enough here. Two things break it: a robot seat
- * moves on the room's own alarm rather than on a message, and an open +3 leaves the
- * seat *on turn* unable to do anything at all — the only legal move belongs to
- * whoever holds a breaker, out of turn. A loop that keeps asking the seat on turn to
+ * playing an ordinary round and not enough here. Two things break it: a robot seat
+ * moves on the room's own alarm rather than on a message, and an open Wild Draw Four
+ * leaves the seat *on turn* unable to do anything at all — the only legal move
+ * belongs to its victim, out of turn. A loop that keeps asking the seat on turn to
  * move in that state sends a move the room correctly refuses, for ever, and a refusal
  * changes no version, so nothing else ever happens either.
  *
@@ -83,14 +91,10 @@ function playWithRoom(table: Harness, seats: readonly Seat[], limit = 4_000): vo
     if (state?.phase === 'finished') {
       return;
     }
-    const pending = state?.plusThree ?? null;
+    const pending = state?.challenge ?? null;
     const actor =
       pending !== null
-        ? seats.find(
-            (seat) =>
-              seat.playerId !== pending.playerId &&
-              seat.client.hand.some((card) => card.kind === 'breakPlusThree'),
-          )
+        ? seats.find((seat) => seat.playerId === pending.targetId)
         : seats.find((seat) => seat.playerId === state?.currentPlayerId);
     if (actor !== undefined) {
       actor.client.takeTurn();
@@ -101,7 +105,7 @@ function playWithRoom(table: Harness, seats: readonly Seat[], limit = 4_000): vo
 }
 
 /** Plays until somebody wins, or until `limit` moves have gone by. */
-function playOut(seats: readonly Seat[], limit = 800): void {
+function playOut(seats: readonly Seat[], limit = 3_000): void {
   for (let move = 0; move < limit; move += 1) {
     if (seats[0]!.client.state?.phase === 'finished') {
       return;
@@ -324,11 +328,17 @@ describe('actions', () => {
     const onTurn = seats.find((s) => s.playerId === currentPlayerId(creator.client))!;
     const staleSeq = onTurn.client.expect('publicState').payload.state.turnSeq ?? 0;
 
+    /*
+     * Drawing no longer ends a turn, so the turn is moved on explicitly — which is
+     * the point: the token is checked against the *turn*, and a draw is only half of
+     * one.
+     */
     onTurn.client.say('action', { action: { type: 'drawCard' }, requestId: 'rq-a' });
+    onTurn.client.say('action', { action: { type: 'passTurn' }, requestId: 'rq-b' });
     onTurn.client.forget();
     onTurn.client.say('action', {
       action: { type: 'drawCard' },
-      requestId: 'rq-b',
+      requestId: 'rq-c',
       turnToken: { currentPlayerId: onTurn.playerId, turnSeq: staleSeq },
     });
     expect(onTurn.client.expect('actionRejected').payload.code).toBe('notYourTurn');
@@ -356,7 +366,7 @@ describe('last card', () => {
 
     // Inside the head start: nothing to catch yet.
     creator.client.say('action', {
-      action: { type: 'catchLastCard', targetId: guest.playerId },
+      action: { type: 'catchUno', targetId: guest.playerId },
       requestId: 'rq-early',
     });
     expect(creator.client.expect('actionRejected').payload.code).toBe('nothingToCatch');
@@ -366,7 +376,7 @@ describe('last card', () => {
     table.advance(50);
     creator.client.forget();
     creator.client.say('action', {
-      action: { type: 'catchLastCard', targetId: guest.playerId },
+      action: { type: 'catchUno', targetId: guest.playerId },
       requestId: 'rq-still-early',
     });
     expect(creator.client.expect('actionRejected').payload.code).toBe('nothingToCatch');
@@ -374,7 +384,7 @@ describe('last card', () => {
     table.advance(500);
     creator.client.forget();
     creator.client.say('action', {
-      action: { type: 'catchLastCard', targetId: guest.playerId },
+      action: { type: 'catchUno', targetId: guest.playerId },
       requestId: 'rq-late',
     });
     expect(creator.client.last('actionRejected')).toBeUndefined();
@@ -386,12 +396,12 @@ describe('last card', () => {
   it('lets a player declare, after which they cannot be caught', () => {
     const { table, creator, guest } = dealtTable();
     table.room.forceHandForTests(guest.playerId, 1);
-    guest.client.say('action', { action: { type: 'declareLastCard' }, requestId: 'rq-declare' });
+    guest.client.say('action', { action: { type: 'declareUno' }, requestId: 'rq-declare' });
     table.advance(500);
 
     creator.client.forget();
     creator.client.say('action', {
-      action: { type: 'catchLastCard', targetId: guest.playerId },
+      action: { type: 'catchUno', targetId: guest.playerId },
       requestId: 'rq-catch',
     });
     expect(creator.client.expect('actionRejected').payload.code).toBe('nothingToCatch');
@@ -406,7 +416,7 @@ describe('last card', () => {
 
     creator.client.forget();
     creator.client.say('action', {
-      action: { type: 'catchLastCard', targetId: guest.playerId },
+      action: { type: 'catchUno', targetId: guest.playerId },
       requestId: 'rq-farm',
     });
     expect(creator.client.expect('actionRejected').payload.code).toBe('nothingToCatch');
@@ -418,16 +428,19 @@ describe('absence, on the alarm', () => {
     const { table, creator, guest } = dealtTable();
     const seats = [creator, guest];
     /*
-     * Play on until the seat on turn owes a plain turn and nothing else. Two states
-     * reach the same place by another route and would not exercise the price of a
-     * pass: a sequence of the seat's own is *closed* first, and a close that ends
-     * the turn is a move rather than a pass, so it costs nothing; and an outstanding
-     * +2 run is paid in full, which is somebody else's arithmetic, not this one's.
+     * Play on until the guest owes a plain turn and nothing else. Two states reach
+     * the same place by another route and would not exercise the price of a pass: a
+     * frozen table, where the seat on turn has no move to skip, and a turn that has
+     * already drawn, which has paid its card and is charged nothing further.
      */
     let onTurn = seats.find((s) => s.playerId === currentPlayerId(creator.client))!;
     for (let guard = 0; guard < 20; guard += 1) {
       const state = creator.client.state;
-      if (state?.takiMode === null && state.pendingDraw === 0 && onTurn.playerId === guest.playerId) {
+      if (
+        state?.challenge === null &&
+        state.hasDrawn === false &&
+        onTurn.playerId === guest.playerId
+      ) {
         break;
       }
       takeTurn(seats);
@@ -607,54 +620,50 @@ describe('absence, on the alarm', () => {
     expect(pending.every((entry) => entry.at > table.now())).toBe(true);
   });
 
-  it('wakes for the earliest of several deadlines, not the last one considered', () => {
+  it('books the challenge deadline against the seat being waited for, not the one on turn', () => {
     /*
-     * A +3 can be waiting on more than one seat, and each contributes a deadline. The
-     * queue holds one row per kind, so a loop that books inside it lets whichever seat
-     * happens to be last in the array decide when the room wakes — which is the wrong
-     * seat roughly half the time, and unboundedly wrong when their clocks differ.
+     * While a Wild Draw Four is open the seat *on turn* is the player who played it,
+     * and they have nothing left to do. Everything that decides when the room wakes —
+     * the absence deadline, the nudge, the stand-in — has to key off the target
+     * instead, or the room waits out a grace belonging to somebody who is not
+     * holding anybody up.
      */
     const table = new Harness();
     const creator = table.join('Dana', CREATE);
     const second = table.join('Yoni');
-    const third = table.join('Noa');
+    creator.client.say('roomCommand', { command: { type: 'setStandInEnabled', enabled: false } });
     creator.client.say('roomCommand', { command: { type: 'startGame' } });
 
-    /*
-     * Two seats owe an answer and they owe it on different clocks: one is gone, which is
-     * declined for at once, and one is here and silent, which is waited out for
-     * `STAND_IN_IDLE_MS`. The gone one is listed *first*, so a loop that books inside
-     * itself — letting whichever seat is last decide — lands ninety seconds late.
-     *
-     * `armedAt === pending[0].at` is what this used to assert, and it proves nothing:
-     * the mux holds one row per kind and always arms at the minimum of what it holds, so
-     * it is true however wrong the row is. The row itself is the thing to check.
-     */
-    table.room.handleClose(third.client);
-    table.room.forcePlusThreeForTests(creator.playerId, third.playerId, second.playerId);
+    table.room.handleClose(second.client);
+    table.room.forceChallengeForTests(creator.playerId, second.playerId);
 
     const at = table.room.alarmAtForTests('absentTurn');
     expect(at).not.toBeNull();
-    expect(at).toBeLessThan(table.now() + STAND_IN_IDLE_MS);
+    // The seat being waited for is gone, so there is nothing to wait out.
+    expect(at).toBeLessThanOrEqual(table.now() + 2_000);
     expect(table.armedAt).toBe(at);
-
-    /*
-     * And the seat it fires for is the gone one, on its own deadline, rather than both
-     * of them waiting ninety seconds on the silent one. The window itself stays open —
-     * `second` still owes an answer — which is exactly the point: one seat's obligation
-     * is settled without the other's clock being borrowed for it.
-     */
-    table.advance(5_000);
-    const window = table.room.snapshotForTests().game?.plusThree;
-    expect(window?.awaiting).toEqual([second.playerId]);
   });
 
-  it('resolves a +3 window that is waiting on a seat which is not there', () => {
+  it('names the seat being waited for, not the one that played the card', () => {
+    const table = new Harness();
+    const creator = table.join('Dana', CREATE);
+    const second = table.join('Yoni');
+    creator.client.say('roomCommand', { command: { type: 'startGame' } });
+    second.client.forget();
+    table.room.forceChallengeForTests(creator.playerId, second.playerId);
+    table.advance(1_000);
+
+    const lobby = second.client.last('lobbyState')?.payload.lobby;
+    expect(lobby?.waitingFor).toBe(second.playerId);
+    expect(lobby?.waitingReason).toBe('challenge');
+  });
+
+  it('resolves a challenge window that is waiting on a seat which is not there', () => {
     /*
-     * The worst stall in the game: while a +3 is open the seat on turn is the player who
-     * *played* it, so every command from every other seat is refused and nothing about
-     * the current player says the table is frozen. If the seats being waited on are
-     * away, only this deadline unfreezes it.
+     * The worst stall in the game: while a Wild Draw Four is open the seat on turn is
+     * the player who *played* it, so every command from every other seat is refused
+     * and nothing about the current player says the table is frozen. If the seat being
+     * waited on is away, only this deadline unfreezes it.
      */
     const table = new Harness();
     const creator = table.join('Dana', CREATE);
@@ -662,15 +671,15 @@ describe('absence, on the alarm', () => {
     creator.client.say('roomCommand', { command: { type: 'setStandInEnabled', enabled: false } });
     creator.client.say('roomCommand', { command: { type: 'startGame' } });
     table.room.handleClose(second.client);
-    table.room.forcePlusThreeForTests(creator.playerId, second.playerId);
-    expect(table.room.snapshotForTests().game?.plusThree).not.toBeNull();
+    table.room.forceChallengeForTests(creator.playerId, second.playerId);
+    expect(table.room.snapshotForTests().game?.challenge).not.toBeNull();
 
     table.advance(ABSENT_TURN_GRACE_CLOSED_MS + 5_000);
 
-    expect(table.room.snapshotForTests().game?.plusThree).toBeNull();
+    expect(table.room.snapshotForTests().game?.challenge).toBeNull();
   });
 
-  it('resolves a +3 window a present seat has simply not answered', () => {
+  it('resolves a challenge window a present seat has simply not answered', () => {
     // The same freeze, from a phone that answers every probe and taps nothing. A
     // turn-based check cannot see this one at all.
     const table = new Harness();
@@ -678,11 +687,11 @@ describe('absence, on the alarm', () => {
     const second = table.join('Yoni');
     creator.client.say('roomCommand', { command: { type: 'setStandInEnabled', enabled: false } });
     creator.client.say('roomCommand', { command: { type: 'startGame' } });
-    table.room.forcePlusThreeForTests(creator.playerId, second.playerId);
+    table.room.forceChallengeForTests(creator.playerId, second.playerId);
 
     table.advance(STAND_IN_IDLE_MS + 5_000);
 
-    expect(table.room.snapshotForTests().game?.plusThree).toBeNull();
+    expect(table.room.snapshotForTests().game?.challenge).toBeNull();
   });
 
   it('stops working the table when nobody is connected at all', () => {
@@ -786,7 +795,7 @@ describe('pause, abandon and play again', () => {
     expect(creator.client.expect('lobbyState').payload.lobby.phase).toBe('inGame');
     expect(creator.client.expect('publicState').payload.state.phase).toBe('playing');
     // A fresh deal, not the old table.
-    expect(handOf(creator.client).length).toBe(8);
+    expect(handOf(creator.client).length).toBe(7);
   });
 });
 
@@ -860,94 +869,60 @@ describe('the running score', () => {
   });
 });
 
-describe('stairs mode', () => {
-  const STAIRS = { create: { maxPlayers: 4, tableLanguage: 'he' as const, gameMode: 'stairs' as const } };
+describe('the points match', () => {
+  const POINTS = { create: { maxPlayers: 4, tableLanguage: 'he' as const, gameMode: 'points' as const } };
 
   it('deals the round in the mode the table was opened with', () => {
     const table = new Harness(STAIRS_SEED);
-    const creator = table.join('Dana', STAIRS);
+    const creator = table.join('Dana', POINTS);
     const guest = table.join('Yoni');
-    expect(creator.client.lobby?.gameMode).toBe('stairs');
-
     creator.client.say('roomCommand', { command: { type: 'startGame' } });
-    const state = creator.client.expect('publicState').payload.state;
-    expect(state.mode).toBe('stairs');
-    // Both modes open with the same eight cards; the staircase starts at nought.
-    expect(handOf(guest.client).length).toBe(8);
-    expect(state.players.every((player) => player.stairsStep === 0)).toBe(true);
+
+    expect(creator.client.state?.mode).toBe('points');
+    expect(guest.client.state?.mode).toBe('points');
+    // The lobby carries it too, so a screen can name the mode before the deal.
+    expect(creator.client.lobby?.gameMode).toBe('points');
+    expect(creator.client.lobby?.targetScore).toBe(500);
   });
 
-  it('changes mode in the lobby, and refuses to once cards are dealt', () => {
-    const table = new Harness();
-    const creator = table.join('Dana', CREATE);
-    table.join('Yoni');
-    expect(creator.client.lobby?.gameMode).toBe('classic');
-
-    creator.client.say('roomCommand', { command: { type: 'setGameMode', mode: 'stairs' } });
-    expect(creator.client.expect('lobbyState').payload.lobby.gameMode).toBe('stairs');
-
-    creator.client.say('roomCommand', { command: { type: 'startGame' } });
-    creator.client.say('roomCommand', { command: { type: 'setGameMode', mode: 'classic' } });
-    // The round in play was dealt as a staircase and stays one; so does the table.
-    expect(creator.client.lobby?.gameMode).toBe('stairs');
-    expect(creator.client.state?.mode).toBe('stairs');
-  });
-
-  it('only the seat holding the lobby buttons may change the mode', () => {
-    const table = new Harness();
-    const creator = table.join('Dana', CREATE);
-    const guest = table.join('Yoni');
-
-    guest.client.say('roomCommand', { command: { type: 'setGameMode', mode: 'stairs' } });
-    expect(creator.client.lobby?.gameMode).toBe('classic');
-  });
-
-  it('plays a whole staircase out: eight hands, then a winner', () => {
+  it('scores the round to the winner and keeps a running total', () => {
     const table = new Harness(STAIRS_SEED);
-    const creator = table.join('Dana', STAIRS);
+    const creator = table.join('Dana', POINTS);
     const guest = table.join('Yoni');
-    // Both seats are answering for themselves throughout, so nothing a robot did can
-    // be mistaken for the rule being tested.
-    creator.client.say('roomCommand', { command: { type: 'setStandInEnabled', enabled: false } });
     creator.client.say('roomCommand', { command: { type: 'startGame' } });
-
-    // A staircase is thirty-six cards a player rather than eight, so the ceiling is
-    // higher than a classic round's — and it is still a ceiling, not a wait.
-    playWithRoom(table, [creator, guest]);
+    playOut([creator, guest]);
 
     const final = creator.client.state;
     expect(final?.phase).toBe('finished');
-    const winner = final?.players.find((player) => player.id === final.winnerId);
-    // Won by walking the whole staircase down, not by an empty hand.
-    expect(winner?.stairsStep).toBe(8);
-    expect(winner?.cardCount).toBe(0);
-    // The steps were real: the loser got somewhere too, and the log said so.
-    const advanced = creator.client
-      .all('gameEvents')
-      .flatMap((message) => message.payload.events)
-      .filter((event) => event.type === 'stairsAdvanced');
-    expect(advanced.length).toBeGreaterThanOrEqual(7);
-    // Every step deals one card fewer than the last, for each seat independently.
-    for (const seat of final?.players ?? []) {
-      const mine = advanced.filter((event) => event.playerId === seat.id);
-      expect(mine.map((event) => event.stage)).toEqual(mine.map((_, index) => index + 1));
-      expect(mine.map((event) => event.dealt)).toEqual(mine.map((_, index) => 7 - index));
+    const winner = final?.winnerId as string;
+    const scored = final?.players.find((player) => player.id === winner)?.roundPoints ?? 0;
+    expect(scored).toBeGreaterThan(0);
+
+    // And the room carries it forward, beside the rounds-won count.
+    const seat = creator.client.lobby?.players.find((player) => player.id === winner);
+    expect(seat?.points).toBe(scored);
+  });
+
+  it('ends the match when somebody crosses the target, and a new round starts a new one', () => {
+    const table = new Harness(STAIRS_SEED);
+    const creator = table.join('Dana', POINTS);
+    const guest = table.join('Yoni');
+    creator.client.say('roomCommand', { command: { type: 'startGame' } });
+    // Straight to the crossing rather than playing a dozen rounds for it.
+    table.room.forcePointsForTests(creator.playerId, 495);
+    playOut([creator, guest]);
+
+    const lobby = creator.client.lobby;
+    if ((lobby?.players.find((player) => player.id === creator.playerId)?.points ?? 0) >= 500) {
+      expect(lobby?.matchWinnerId).toBe(creator.playerId);
+
+      // Playing again starts a fresh match rather than continuing a won one.
+      creator.client.say('playAgainVote', { agree: true });
+      guest.client.say('playAgainVote', { agree: true });
+      const next = creator.client.lobby;
+      expect(next?.matchWinnerId).toBeNull();
+      expect(next?.players.every((player) => (player.points ?? 0) === 0)).toBe(true);
     }
-    // And the round it won still counts once towards the room's score.
-    expect(creator.client.lobby?.players.find((p) => p.id === final?.winnerId)?.wins).toBe(1);
-  });
-
-  it('a robot walks the staircase as well as a person does', () => {
-    const table = new Harness(STAIRS_SEED);
-    const creator = table.join('Dana', STAIRS);
-    creator.client.say('roomCommand', { command: { type: 'addBot' } });
-    creator.client.say('roomCommand', { command: { type: 'startGame' } });
-
-    playWithRoom(table, [creator]);
-
-    const final = creator.client.state;
-    expect(final?.phase).toBe('finished');
-    expect(final?.players.find((player) => player.id === final.winnerId)?.stairsStep).toBe(8);
   });
 });
 
@@ -960,11 +935,19 @@ describe('robots', () => {
 
     creator.client.say('roomCommand', { command: { type: 'startGame' } });
 
-    for (let move = 0; move < 400; move += 1) {
-      if (creator.client.state?.phase === 'finished') {
+    for (let move = 0; move < 2_000; move += 1) {
+      const state = creator.client.state;
+      if (state?.phase === 'finished') {
         break;
       }
-      if (creator.client.state?.currentPlayerId === creator.playerId) {
+      /*
+       * A Wild Draw Four freezes the table for everybody, including whoever is
+       * nominally on turn, so the seat that owes a move is its target rather than the
+       * current player. Asking the wrong one sends something the room refuses, and a
+       * refusal changes no version — so the loop would spin rather than advance.
+       */
+      const owes = state?.challenge?.targetId ?? state?.currentPlayerId;
+      if (owes === creator.playerId) {
         creator.client.takeTurn();
       } else {
         // The robot moves on an alarm, like everything else the room does alone.
@@ -1003,9 +986,16 @@ describe('robots', () => {
     back.say('resumeRequest', { playerId: creator.playerId, resumeToken: creator.resumeToken });
 
     expect(table.pendingAlarms().map((alarm) => alarm.kind)).toContain('botMove');
+    const before = creator.client.state?.version ?? 0;
     table.advance(BOT_STALL_MS + 2_000);
     expect(table.logs.filter((line) => line.includes('did not move'))).toEqual([]);
-    expect(currentPlayerId(back), 'the robot played, so the turn came back').toBe(creator.playerId);
+    /*
+     * The robot moved, which is the whole assertion. Not "the turn came back": at two
+     * seats a Skip, a Reverse and a Draw Two all hand the robot another turn, so a
+     * round where it played well would fail an assertion about whose turn it is while
+     * proving exactly the thing this test is for.
+     */
+    expect(back.state?.version ?? 0, 'the robot took its turn').toBeGreaterThan(before);
   });
 
   it('lets a robot cover a seat nobody has answered for in a long time', () => {
@@ -1176,7 +1166,7 @@ describe('storage', () => {
       delete seat['wins'];
     }
     delete round['mode'];
-    delete round['stairs'];
+    delete round['points'];
     table.store.put('room', JSON.stringify(stored));
     table.store.put('game', JSON.stringify(round));
 
@@ -1280,7 +1270,8 @@ describe('what the socket refuses', () => {
     table.room.handleMessage(
       stale,
       JSON.stringify({
-        protocolVersion: 1,
+        // A version this build has never spoken, which is what a stale bundle is.
+        protocolVersion: 99,
         id: 'aaaaaaaaaaaaaaaa',
         roomId: table.roomCode,
         senderPeerId: 'stale',

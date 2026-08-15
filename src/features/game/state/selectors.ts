@@ -93,9 +93,7 @@ export function isMyTurn(state: Pick<TableSnapshot, 'publicState' | 'localPlayer
 }
 
 /** Whether the local player is the seat that has to answer an open Wild Draw Four. */
-export function mustAnswerChallenge(
-  state: Pick<TableSnapshot, 'publicState' | 'localPlayerId'>,
-): boolean {
+export function mustAnswerChallenge(state: Pick<TableSnapshot, 'publicState' | 'localPlayerId'>): boolean {
   const challenge = state.publicState?.challenge;
   return challenge !== null && challenge !== undefined && challenge.targetId === state.localPlayerId;
 }
@@ -449,8 +447,6 @@ export function winnerName(state: Pick<TableSnapshot, 'publicState' | 'lobby'>):
   const winnerId = state.publicState?.winnerId;
   return winnerId ? playerName(state, winnerId) : null;
 }
-
-
 
 export function connectedCount(state: Pick<TableSnapshot, 'lobby'>): number {
   return seatedPlayers(state).filter((player) => player.health !== 'disconnected').length;

@@ -44,10 +44,7 @@ describe('event descriptions', () => {
     [{ type: 'turnPassed', playerId: 'p1' }, 'Dana ended their turn.'],
     [{ type: 'colorChosen', playerId: 'p1', color: 'blue' }, 'Dana chose Blue.'],
     [{ type: 'playerSkipped', playerId: 'p2' }, 'Eli was skipped.'],
-    [
-      { type: 'challengeOpened', playerId: 'p1', targetId: 'p2' },
-      'Dana played a Wild Draw Four at Eli.',
-    ],
+    [{ type: 'challengeOpened', playerId: 'p1', targetId: 'p2' }, 'Dana played a Wild Draw Four at Eli.'],
     [{ type: 'challengeDeclined', playerId: 'p2', drawn: 4 }, 'Eli took the cards — 4 cards drawn.'],
     [{ type: 'challengeDeclined', playerId: 'p2', drawn: 1 }, 'Eli took the cards — 1 card drawn.'],
     [
