@@ -104,6 +104,15 @@ const seatSchema = z.object({
    * thrown away with every credential in it.
    */
   wins: z.number().int().min(0).max(10_000).default(0),
+  /**
+   * This seat's running total in a points match.
+   *
+   * Beside `wins` and for the same reasons: it belongs to the *seat*, so it lives
+   * exactly as long as the seat does, and a room that closes takes every score with
+   * it. Defaulted, so a record written before the points mode existed reloads as a
+   * table where nobody has scored yet.
+   */
+  points: z.number().int().min(0).max(100_000).default(0),
 });
 
 export type SeatRecord = z.infer<typeof seatSchema>;
@@ -123,7 +132,7 @@ export const roomRecordSchema = z.object({
    * than by a check somebody has to remember. Defaulted for the same reason as
    * `emptySince`.
    */
-  gameMode: z.enum(['classic', 'stairs']).default('classic'),
+  gameMode: z.enum(['classic', 'points']).default('classic'),
   /**
    * Who the table quietly leans towards, and how far. See `docs/assist.md`.
    *
@@ -183,6 +192,15 @@ export const roomRecordSchema = z.object({
    */
   lastCardSince: z.record(playerId, z.number().int().min(0)),
   /**
+   * The seat that has taken the match, once somebody crosses the target score.
+   *
+   * The room's rather than the round's, because a match outlives every round in it.
+   * Null until it happens, and cleared when a fresh match is started. Defaulted so a
+   * record written before the points mode existed reloads rather than being thrown
+   * away with every credential in it.
+   */
+  matchWinnerId: playerId.nullable().default(null),
+  /**
    * Each robot's own random stream, one seed per seat.
    *
    * Separate from the game's `RngState` on purpose: sharing it would make the
@@ -218,15 +236,7 @@ const rngStateSchema = z.object({ seed: z.number().int() });
 export const gameStateSchema = z.object({
   version: z.number().int().nonnegative(),
   phase: z.enum(['playing', 'finished']),
-  /*
-   * Defaulted, and the default is the mode the game had before there were modes: a
-   * round persisted by an older deployment reloads as the classic round it was
-   * being played as, rather than being discarded — which for a live round means
-   * every hand at the table.
-   */
-  mode: z.enum(['classic', 'stairs']).default('classic'),
-  /** Hands each seat has emptied. Empty for a round dealt before the staircase existed. */
-  stairs: z.record(playerId, z.number().int().min(0).max(8)).default({}),
+  mode: z.enum(['classic', 'points']),
   players: z
     .array(z.object({ id: playerId, name: z.string().min(1).max(32), left: z.boolean().optional() }))
     .min(2)
@@ -234,35 +244,32 @@ export const gameStateSchema = z.object({
   /**
    * How far this round's deal and draw pile lean towards each seat.
    *
-   * Defaulted to nothing, which is the value that makes an older record behave as
-   * it did before the field existed — a round dealt without any lean carries on
-   * being drawn without one. Stored with the *round* rather than read back off the
-   * room on every command, so a hand dealt generously cannot be drawn into meanly
-   * because somebody opened the settings mid-round.
+   * Stored with the *round* rather than read back off the room on every command, so
+   * a hand dealt generously cannot be drawn into meanly because somebody opened the
+   * settings mid-round.
    */
-  assist: z.record(playerId, z.number().int().min(0).max(3)).default({}),
+  assist: z.record(playerId, z.number().int().min(0).max(3)),
   hands: z.record(playerId, z.array(cardSchema).max(200)),
   drawPile: z.array(cardSchema).max(200),
   discardPile: z.array(cardSchema).max(200),
-  activeColor: z.enum(['red', 'blue', 'green', 'yellow']),
+  activeColor: z.enum(['red', 'yellow', 'green', 'blue']),
   direction: z.union([z.literal(1), z.literal(-1)]),
   currentPlayerIndex: z.number().int().min(0).max(5),
-  takiMode: z
-    .object({
-      color: z.enum(['red', 'blue', 'green', 'yellow']),
-      playerId,
-      cardsPlayed: z.number().int().min(1).max(200),
-      openedWithSuperTaki: z.boolean(),
-      // Defaulted for the same reason as on the wire: a round persisted before
-      // this field existed must reload rather than be thrown away.
-      takisOnly: z.boolean().default(false),
-    })
-    .nullable(),
-  pendingPlus: z.boolean(),
-  pendingDraw: z.number().int().min(0).max(200),
-  freePlay: z.boolean(),
-  plusThree: z.object({ playerId, awaiting: z.array(playerId).max(6) }).nullable(),
-  declaredLastCard: z.array(playerId).max(6),
+  /** The card the seat to move has already taken this turn. See the engine. */
+  drawnCardId: z.string().min(1).max(40).nullable(),
+  /**
+   * An open Wild Draw Four, and the verdict it will be settled by.
+   *
+   * `bluffed` is the whole of it. The hand it was decided from is deliberately not
+   * here: storing a copy of real cards would put the same card in the record twice,
+   * which the conservation census would then have to be taught to forgive.
+   */
+  challenge: z.object({ playerId, targetId: playerId, bluffed: z.boolean() }).nullable(),
+  declaredUno: z.array(playerId).max(6),
+  /** Seats on one uncalled card, and the turn each became catchable on. */
+  unoExposed: z.record(playerId, z.number().int().nonnegative()),
+  /** What each seat scored in the round just ended. Empty while one is in play. */
+  points: z.record(playerId, z.number().int().min(0).max(2000)),
   rng: rngStateSchema,
   winnerId: playerId.nullable(),
   endReason: z.enum(['won', 'abandoned']).nullable(),

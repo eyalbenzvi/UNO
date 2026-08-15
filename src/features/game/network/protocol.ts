@@ -303,6 +303,14 @@ export const lobbyPlayerSchema = z.object({
    * so a snapshot from a room that predates the score still parses.
    */
   wins: z.number().int().min(0).max(10_000).optional(),
+  /**
+   * This seat's running total in a points match.
+   *
+   * Beside `wins` and belonging to the seat in exactly the same way. Absent reads
+   * as nought, and it is absent entirely in a classic match — a score nobody is
+   * keeping should not be rendered as a nought everybody can see.
+   */
+  points: z.number().int().min(0).max(100_000).optional(),
 });
 
 export const lobbySnapshotSchema = z.object({
@@ -345,7 +353,7 @@ export const lobbySnapshotSchema = z.object({
   pausedBy: playerIdSchema.nullable(),
   /** Who the table is waiting for, and why — so no screen has to guess. */
   waitingFor: playerIdSchema.nullable(),
-  waitingReason: z.enum(['turn', 'absent', 'breaker', 'paused']).nullable(),
+  waitingReason: z.enum(['turn', 'absent', 'challenge', 'paused']).nullable(),
   /** Room clock at which the table started waiting, paired with `sentAt`. */
   waitingSince: z.number().int().min(0).nullable(),
   /** Players who have voted to abandon the round. */

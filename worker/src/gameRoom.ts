@@ -35,6 +35,7 @@ import {
   type AssistWeights,
   type AssistLevel,
 } from '../../src/features/game/engine/assist.ts';
+import { TARGET_SCORE } from '../../src/features/game/engine/cards.ts';
 import { applyCommand, createGame, currentPlayer } from '../../src/features/game/engine/engine.ts';
 import { createRng, nextFloat, seedFromString } from '../../src/features/game/engine/prng.ts';
 import {
@@ -50,6 +51,7 @@ import {
 import { toPrivateHandView, toPublicGameState } from '../../src/features/game/engine/views.ts';
 import { MessageDeduplicator, roomMessage } from '../../src/features/game/network/envelope.ts';
 import {
+  TURN_SCOPED_ACTIONS,
   parseClientMessage,
   type ClientMessage,
   type GameAction,
@@ -124,7 +126,7 @@ export interface GameRoomOptions {
    * played at overridden pacing takes a different set of decisions from the same
    * deal played at the room's. Neither is more correct — they are two rounds.
    */
-  readonly botPauseMs?: (kind: BotMoveKind, inSequence: boolean) => number;
+  readonly botPauseMs?: (kind: BotMoveKind) => number;
   /** Where a room reports things worth knowing. Wired to `console` by the adapter. */
   readonly log?: (message: string, detail?: Record<string, unknown>) => void;
 }
@@ -146,10 +148,10 @@ function buildCommand(playerId: string, action: GameAction): GameCommand {
         playerId,
         cardId: action.cardId,
         ...(action.chosenColor ? { chosenColor: action.chosenColor } : {}),
-        ...(action.declareLastCard === true ? { declareLastCard: true } : {}),
+        ...(action.declareUno === true ? { declareUno: true } : {}),
       };
-    case 'catchLastCard':
-      return { type: 'catchLastCard', playerId, targetId: action.targetId };
+    case 'catchUno':
+      return { type: 'catchUno', playerId, targetId: action.targetId };
     default:
       return { type: action.type, playerId };
   }
@@ -158,16 +160,14 @@ function buildCommand(playerId: string, action: GameAction): GameCommand {
 /**
  * Intents that belong to a turn, and may therefore be checked against one.
  *
- * Declaring last card, catching somebody who did not, and answering a +3 are
- * deliberately absent: they are legal at any moment, they race each other on
- * purpose, and gating them on a turn would hand every tie to whichever player broke
- * the rule.
+ * Built from the list the *client* stamps its token against, rather than written
+ * out again here. The two used to be separate literals in separate packages that
+ * happened to agree, and a pair like that only has to drift once — in the direction
+ * where a replayed action ends an innocent player's turn.
  */
-const TURN_SCOPED: ReadonlySet<GameAction['type']> = new Set<GameAction['type']>([
-  'playCard',
-  'drawCard',
-  'closeTaki',
-]);
+const TURN_SCOPED: ReadonlySet<GameAction['type']> = new Set<GameAction['type']>(
+  TURN_SCOPED_ACTIONS,
+);
 
 /**
  * Nothing is ever booked closer than this to now.
@@ -227,6 +227,7 @@ function freshSeat(
     lastRequestId: null,
     lastRequestVersion: null,
     wins: 0,
+    points: 0,
     ...overrides,
   };
 }
@@ -568,8 +569,13 @@ export class GameRoom {
     if (!this.game || record.phase !== 'inGame') {
       return { playerId: null, reason: null };
     }
-    if (this.game.plusThree !== null) {
-      return { playerId: this.game.plusThree.playerId, reason: 'breaker' };
+    if (this.game.challenge !== null) {
+      /*
+       * The seat being waited *for* is the one that has to answer, not the one that
+       * played the card. Naming the player instead would point every waiting notice,
+       * every nudge and the whole absence decision at somebody who has already moved.
+       */
+      return { playerId: this.game.challenge.targetId, reason: 'challenge' };
     }
     const onTurn = currentPlayer(this.game);
     if (!onTurn) {
@@ -608,6 +614,9 @@ export class GameRoom {
         ...(seat.standIn !== null ? { standIn: true } : {}),
         ...(seat.robotPlayedThisRound && !seat.bot ? { robotPlayed: true } : {}),
         wins: seat.wins,
+        // Absent entirely in a classic match: a score nobody is keeping should not
+        // be rendered as a nought on every screen.
+        ...(record.gameMode === 'points' ? { points: seat.points } : {}),
       }));
     const waiting = this.waiting();
     return {
@@ -617,6 +626,9 @@ export class GameRoom {
       phase: record.phase,
       players,
       tableLanguage: record.tableLanguage,
+      ...(record.gameMode === 'points'
+        ? { targetScore: TARGET_SCORE, matchWinnerId: record.matchWinnerId }
+        : {}),
       gameMode: record.gameMode,
       sentAt: this.now(),
       seatGraceMs: SEAT_GRACE_MS,
@@ -1019,8 +1031,9 @@ export class GameRoom {
       phase: 'lobby',
       maxPlayers: Math.min(Math.max(options.maxPlayers, MIN_PLAYERS), MAX_PLAYERS),
       tableLanguage: options.tableLanguage,
-      // A client that says nothing is asking for the game as it has always been.
+      // A client that says nothing is asking for the shorter game.
       gameMode: options.gameMode ?? 'classic',
+      matchWinnerId: null,
       versionFloor: 0,
       round: 0,
       standInEnabled: true,
@@ -1299,15 +1312,14 @@ export class GameRoom {
     /*
      * A turn-scoped intent computed against a turn that has since moved on is refused
      * rather than applied. Replaying a stale one is the real danger: a card that was
-     * legal three moves ago may be illegal now, or already played. A breaker
-     * answering an open +3 is exempt even though it is a `playCard`, because the whole
-     * point of that card is that it is played out of turn.
+     * legal three moves ago may be illegal now, or already played.
+     *
+     * The two answers to a Wild Draw Four need no exemption here — they are not
+     * turn-scoped in the first place, because they are made out of turn by design.
      */
     const token = payload.turnToken;
-    const answeringBreaker = this.game?.plusThree != null && payload.action.type === 'playCard';
     if (
       token !== undefined &&
-      !answeringBreaker &&
       TURN_SCOPED.has(payload.action.type) &&
       this.game !== null &&
       token.turnSeq !== this.game.turnSeq
@@ -1354,7 +1366,7 @@ export class GameRoom {
      * down to one card gets their head start. Both answer `nothingToCatch`: from the
      * caller's side there is nothing to catch *yet*.
      */
-    if (action.type === 'catchLastCard') {
+    if (action.type === 'catchUno') {
       const target = this.seatFor(action.targetId);
       // A seat a robot is playing *can* shout, so it is catchable like anybody else.
       // The exemption is for a chair nobody is sitting in.
@@ -1443,6 +1455,25 @@ export class GameRoom {
         if (winner !== undefined) {
           winner.wins += 1;
           this.log('a round was won', { seat: winner.seat, name: winner.name, wins: winner.wins });
+          /*
+           * The match total, which only a points round keeps.
+           *
+           * Added to the *seat*, beside the rounds-won count and for the same reason:
+           * a match outlives the rounds it is made of, and a room that closes takes
+           * every score with it. The engine has already done the arithmetic — it is
+           * the one thing that could see the hands — and this only accumulates it.
+           */
+          if (state.mode === 'points') {
+            winner.points += state.points[winner.playerId] ?? 0;
+            if (winner.points >= TARGET_SCORE && record.matchWinnerId === null) {
+              record.matchWinnerId = winner.playerId;
+              this.log('a match was won', {
+                seat: winner.seat,
+                name: winner.name,
+                points: winner.points,
+              });
+            }
+          }
         }
       }
       record.phase = 'finished';
@@ -1481,6 +1512,21 @@ export class GameRoom {
       .slice()
       .sort((a, b) => a.seat - b.seat)
       .map((seat) => ({ id: seat.playerId, name: seat.name }));
+
+    /*
+     * Starting a round after a match has been won starts a *new match*.
+     *
+     * "Play again" is the only way back here, and after somebody has reached the
+     * target the honest reading of it is a fresh game rather than a five-hundred-and
+     * -somethingth point. Leaving the totals would make the next round's winner the
+     * match winner too, on a score they inherited.
+     */
+    if (record.matchWinnerId !== null) {
+      record.matchWinnerId = null;
+      for (const seat of record.seats) {
+        seat.points = 0;
+      }
+    }
 
     const result = createGame(
       players,
@@ -2228,63 +2274,39 @@ export class GameRoom {
     this.alarms.clear('idleNudge');
 
     /*
-     * Collected and booked as a minimum rather than assigned per seat. `set` replaces,
-     * so a loop that books inside it lets the *last* seat considered decide the
-     * deadline — which for a +3 waiting on three seats means the room wakes for
-     * whichever one happens to be last in the array rather than whichever is due first.
+     * The challenge window first, and without any grace, because it is the worst
+     * stall in the game and the one a turn-based check cannot see: while a Wild Draw
+     * Four is open the seat on turn is the player who *played* it, and every command
+     * from every other seat is refused. If the seat being waited on is away, the
+     * table is frozen and nothing about the current player says so.
      */
-    let absentTurnAt: number | null = null;
-    let botStallAt: number | null = null;
-    const soonest = (current: number | null, candidate: number): number =>
-      current === null ? candidate : Math.min(current, candidate);
-
-    /*
-     * The +3 window first, and without any grace, because it is the worst stall in the
-     * game and the one a turn-based check cannot see: while a +3 is open the seat on
-     * turn is the player who *played* it, and every command from every other seat is
-     * refused. If the seats being waited on are away, the table is frozen and nothing
-     * about the current player says so.
-     */
-    const pending = game.plusThree;
+    const pending = game.challenge;
     if (pending !== null) {
-      for (const awaited of pending.awaiting) {
-        const seat = this.seatFor(awaited);
-        /*
-         * `left` is checked here for the same reason the turn branch below checks it,
-         * and its absence was a 1 Hz loop waiting to happen: the engine refuses every
-         * command from a seat that has left, so a deadline booked for one is a wake
-         * that fires, is refused, and re-books the same past moment for ever. The
-         * engine keeps such a seat out of `awaiting` today — `openPlusThree` filters
-         * them and `applyLeaveGame` prunes them — so this guards an invariant the room
-         * does not own rather than a state it can currently reach.
-         */
-        if (seat === undefined || seat.left) {
-          continue;
-        }
+      const seat = this.seatFor(pending.targetId);
+      /*
+       * `left` is checked here for the same reason the turn branch below does, and
+       * its absence would be a 1 Hz loop waiting to happen: the engine refuses every
+       * command from a seat that has left, so a deadline booked for one is a wake
+       * that fires, is refused, and re-books the same past moment for ever. The
+       * engine releases the window when either seat leaves, so this guards an
+       * invariant the room does not own rather than a state it can currently reach.
+       */
+      if (seat !== undefined && !seat.left) {
         if (this.robotControls(seat)) {
-          const since = Math.max(record.waitingSince ?? 0, seat.standInSince ?? 0);
-          if (since > 0) {
-            botStallAt = soonest(botStallAt, since + BOT_STALL_MS);
+          this.book('botStall', (record.waitingSince ?? now) + BOT_STALL_MS);
+        } else if (!this.present(seat)) {
+          this.book('absentTurn', now);
+        } else {
+          const silentSince = Math.max(record.waitingSince ?? 0, seat.lastIntentAt ?? 0);
+          if (silentSince > 0) {
+            this.book('absentTurn', silentSince + STAND_IN_IDLE_MS);
           }
-          continue;
-        }
-        if (!this.present(seat)) {
-          // Nothing to wait for: decline for them at once.
-          absentTurnAt = soonest(absentTurnAt, now);
-          continue;
-        }
-        /*
-         * And the case that froze a table indefinitely: a seat that is *here* and
-         * tapping nothing. The turn-based check cannot see it, so this window needs its
-         * own deadline.
-         */
-        const silentSince = Math.max(record.waitingSince ?? 0, seat.lastIntentAt ?? 0);
-        if (silentSince > 0) {
-          absentTurnAt = soonest(absentTurnAt, silentSince + STAND_IN_IDLE_MS);
         }
       }
-      this.bookIfSet('absentTurn', absentTurnAt);
-      this.bookIfSet('botStall', botStallAt);
+      /*
+       * Nothing below applies while the window is open. The seat "on turn" is the
+       * player who played the card, and they are not who anybody is waiting for.
+       */
       return;
     }
 
@@ -2345,13 +2367,6 @@ export class GameRoom {
       at = Math.max(at, seat.lastResumeAttemptAt + RESUME_ATTEMPT_SUPPRESSES_SKIP_MS);
     }
     this.book('absentTurn', at);
-  }
-
-  /** Books a deadline only when one was computed. */
-  private bookIfSet(kind: AlarmKind, atMs: number | null): void {
-    if (atMs !== null) {
-      this.book(kind, atMs);
-    }
   }
 
   /**
@@ -2498,34 +2513,36 @@ export class GameRoom {
     return false;
   }
 
-  /** The seat on turn is not there, or a +3 window is waiting on somebody who is not. */
+  /** The seat on turn is not there, or a challenge window is waiting on somebody who is not. */
   private passAbsentTurn(): void {
     const game = this.game;
     if (game === null || this.record?.phase !== 'inGame' || this.record.pausedBy !== null) {
       return;
     }
-    const pending = game.plusThree;
+    const pending = game.challenge;
     if (pending !== null) {
-      for (const awaited of pending.awaiting) {
-        const seat = this.seatFor(awaited);
-        if (seat === undefined || seat.left || this.robotControls(seat)) {
-          continue;
-        }
-        if (!this.present(seat)) {
-          // Declining for them produces exactly what a present player's decline
-          // produces, and — deliberately — no event naming who held a breaker.
-          this.applyRoomCommand({ type: 'passBreak', playerId: awaited });
-          return;
-        }
-        const silentSince = Math.max(this.record.waitingSince ?? 0, seat.lastIntentAt ?? 0);
-        if (silentSince > 0 && this.now() - silentSince >= STAND_IN_IDLE_MS) {
-          if (this.record.standInEnabled && seat.standInDeclined !== 'idle') {
-            this.beginStandIn(seat, 'idle');
-          } else {
-            this.log('a +3 window went unanswered; declining for the seat');
-            this.applyRoomCommand({ type: 'passBreak', playerId: awaited });
-          }
-          return;
+      const seat = this.seatFor(pending.targetId);
+      if (seat === undefined || seat.left || this.robotControls(seat)) {
+        return;
+      }
+      if (!this.present(seat)) {
+        /*
+         * Taking the cards, rather than calling the bluff, and that is the only
+         * honest default. A skip is free in this game — a disconnect is not a
+         * decision — but a penalty somebody else created is paid in full, or pulling
+         * the plug becomes the cheapest answer to a Wild Draw Four. Challenging on
+         * their behalf would be worse still: it is a gamble, and losing it costs six.
+         */
+        this.applyRoomCommand({ type: 'acceptWildDrawFour', playerId: pending.targetId });
+        return;
+      }
+      const silentSince = Math.max(this.record.waitingSince ?? 0, seat.lastIntentAt ?? 0);
+      if (silentSince > 0 && this.now() - silentSince >= STAND_IN_IDLE_MS) {
+        if (this.record.standInEnabled && seat.standInDeclined !== 'idle') {
+          this.beginStandIn(seat, 'idle');
+        } else {
+          this.log('a challenge went unanswered; taking the cards for the seat');
+          this.applyRoomCommand({ type: 'acceptWildDrawFour', playerId: pending.targetId });
         }
       }
       return;
@@ -2556,18 +2573,14 @@ export class GameRoom {
     if (record === null || game === null || record.phase !== 'inGame' || record.pausedBy !== null) {
       return;
     }
-    const pending = game.plusThree;
+    const pending = game.challenge;
     if (pending !== null) {
-      for (const awaited of pending.awaiting) {
-        const seat = this.seatFor(awaited);
-        if (seat === undefined || !this.robotControls(seat)) {
-          continue;
-        }
+      const seat = this.seatFor(pending.targetId);
+      if (seat !== undefined && this.robotControls(seat)) {
         const since = Math.max(record.waitingSince ?? 0, seat.standInSince ?? 0);
         if (since > 0 && now - since >= BOT_STALL_MS) {
-          this.log('a robot did not answer a +3; declining for it');
-          this.applyRoomCommand({ type: 'passBreak', playerId: awaited });
-          return;
+          this.log('a robot did not answer a challenge; taking the cards for it');
+          this.applyRoomCommand({ type: 'acceptWildDrawFour', playerId: pending.targetId });
         }
       }
       return;
@@ -2712,14 +2725,12 @@ export class GameRoom {
     });
   }
 
-  /** Test seam: opens a breaker window that is waiting on one seat. */
-  forcePlusThreeForTests(byPlayerId: string, ...awaiting: readonly string[]): void {
+  /** Test seam: opens a Wild Draw Four window waiting on one seat. */
+  forceChallengeForTests(byPlayerId: string, targetId: string, bluffed = false): void {
     if (this.game === null) {
       return;
     }
-    // Several awaited seats, because one is the case that cannot exercise the thing the
-    // window is hard about: a deadline per seat, and only the earliest may be booked.
-    this.mutateForTests({ plusThree: { playerId: byPlayerId, awaiting: [...awaiting] } });
+    this.mutateForTests({ challenge: { playerId: byPlayerId, targetId, bluffed } });
   }
 
   /** Test seam: what the alarm queue holds for one kind, or `null`. */
