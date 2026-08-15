@@ -42,11 +42,16 @@ async function takeOneAction(page: Page): Promise<boolean> {
   await awaitSettled(page);
 
   /*
-   * A hand of one is declared first, and out of turn if need be: without the
-   * declaration the last card cannot win, so a bot that skipped it would draw a
-   * two-card penalty every time it got close and the round would never end.
+   * A hand of one is called first, and out of turn if need be. The last card wins
+   * whether or not it was called — that is the rule — but a driver that never
+   * called would spend every round being caught for two, and the round would take
+   * for ever to end.
+   *
+   * Anchored on the start of the name, because the button's accessible name is
+   * "UNO! Call it, or be caught for 2 cards." and a loose match would also find the
+   * word in the wordmark and the page title.
    */
-  if (await tapIfPresent(page, /Last card!/)) {
+  if (await tapIfPresent(page, /^UNO!/)) {
     return true;
   }
 

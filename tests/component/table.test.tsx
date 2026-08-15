@@ -102,7 +102,10 @@ describe('a move in flight', () => {
     table({ hand: [red5] });
     setState({ actionPending: true });
     renderApp();
-    expect(screen.getByText('שולח את המהלך…')).toBeInTheDocument();
+    // In the prompt specifically: the blocked draw pile carries the same sentence
+    // as its own screen-reader reason, which is right and makes a page-wide search
+    // ambiguous.
+    expect(document.querySelector('.game__action .callout__text')).toHaveTextContent('שולח את המהלך…');
   });
 });
 
@@ -127,7 +130,7 @@ describe('what to do now', () => {
      */
     table({
       hand: [red5],
-      patch: { challenge: { playerId: GUEST_ID, targetId: HOST_ID } },
+      patch: { challenge: { playerId: GUEST_ID, targetId: HOST_ID, color: 'red' } },
     });
     renderApp();
     expect(screen.getByText('הונח ג׳וקר קח 4')).toBeInTheDocument();
@@ -293,7 +296,7 @@ describe('a "last card" catch, said to the whole table', () => {
     setState({ caught: { targetId: CAROL_ID, byId: GUEST_ID, penalty: 4, nonce: 1 } });
     renderApp();
 
-    expect(screen.getByText('אלי תפס/ה את נועה על "אחרון בידי" — נועה לוקח/ת 4 קלפים.')).toBeInTheDocument();
+    expect(screen.getByText('אלי תפס/ה את נועה בלי הכרזת אונו — נועה לוקח/ת 4 קלפים.')).toBeInTheDocument();
   });
 
   it('tells the player who was caught who caught them', async () => {
@@ -301,7 +304,7 @@ describe('a "last card" catch, said to the whole table', () => {
     setState({ caught: { targetId: HOST_ID, byId: CAROL_ID, penalty: 4, nonce: 1 } });
     const { user } = renderApp();
 
-    const notice = screen.getByText('נועה תפס/ה אותך על "אחרון בידי" — לקחת 4 קלפים.');
+    const notice = screen.getByText('נועה תפס/ה אותך בלי הכרזת אונו — לקחת 4 קלפים.');
     expect(notice).toBeInTheDocument();
     // An alert, not a status: the player who just lost four cards may not have
     // been looking at the table when it happened.
@@ -314,7 +317,7 @@ describe('a "last card" catch, said to the whole table', () => {
   it('says nothing when nobody has been caught', () => {
     threeHanded();
     renderApp();
-    expect(screen.queryByText(/על "אחרון בידי"/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/בלי הכרזת אונו/)).not.toBeInTheDocument();
   });
 });
 
@@ -383,7 +386,7 @@ describe('the arming wave', () => {
       publicState: {
         ...fixture.publicState,
         currentPlayerId: GUEST_ID,
-        challenge: { playerId: GUEST_ID, targetId: HOST_ID },
+        challenge: { playerId: GUEST_ID, targetId: HOST_ID, color: 'red' },
       },
     });
     renderApp();

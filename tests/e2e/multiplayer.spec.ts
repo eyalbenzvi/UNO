@@ -241,13 +241,22 @@ test.describe('a two-player game, against the real room', () => {
     const guest = await context.newPage();
     await seatTwoPlayers(creator, guest);
     await creator.getByRole('button', { name: 'Start game' }).click();
-    await expect(guest.locator('.turn-banner')).toHaveText("Dana's turn");
 
-    await expect(guest.getByRole('button', { name: /Draw pile, \d+ cards/ })).toHaveAttribute(
+    /*
+     * Whoever is *not* on turn, which is not always the guest: the opening card's
+     * effect lands before anybody has moved, and at two seats a Skip, a Reverse and
+     * a Draw Two each hand the turn straight over.
+     */
+    await waitForTurn(creator, guest);
+    const waiting = guest;
+    await waiting.bringToFront();
+    await expect(waiting.locator('.turn-banner')).toHaveText("Dana's turn");
+
+    await expect(waiting.getByRole('button', { name: /Draw pile, \d+ cards/ })).toHaveAttribute(
       'aria-disabled',
       'true',
     );
-    await expect(guest.locator('.hand .card--playable')).toHaveCount(0);
+    await expect(waiting.locator('.hand .card--playable')).toHaveCount(0);
     /*
      * The cards stay focusable — see `PlayableCard` — so that a keyboard or
      * screen-reader player can still read their own hand while they wait. Being
@@ -258,16 +267,16 @@ test.describe('a two-player game, against the real room', () => {
      * `title` most browsers never show. The cost is a tab stop while it is
      * blocked, which is most of a game.
      */
-    const firstCard = guest.locator('.hand .card').first();
+    const firstCard = waiting.locator('.hand .card').first();
     await expect(firstCard).toHaveAttribute('aria-disabled', 'true');
     // Chromium stops driving animation frames in a background tab, which hangs
     // Playwright's stability check; the guest has to be the visible page. The
     // click is forced because Playwright treats `aria-disabled` as un-clickable,
     // while a real finger lands on the card regardless — which is the whole point
     // of keeping it reachable and having it answer back.
-    await guest.bringToFront();
+    await waiting.bringToFront();
     await firstCard.click({ force: true });
-    await expect(guest.getByRole('alert')).toContainText('Wait for your turn');
+    await expect(waiting.getByRole('alert')).toContainText('Wait for your turn');
   });
 
   test('lets the seat with the lobby buttons remove a player before the game starts', async ({ context }) => {

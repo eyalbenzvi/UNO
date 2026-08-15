@@ -104,7 +104,7 @@ describe('skipping the turn of a player who is away', () => {
      * full — or pulling the plug becomes the cheapest answer to a Wild Draw Four.
      */
     const before = threeSeats({
-      challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: true },
+      challenge: { playerId: 'p-alice', targetId: 'p-bob', color: 'red', bluffed: true },
     });
     const { state } = expectOk(applyCommand(before, { type: 'skipTurn', playerId: 'p-bob' }));
     expect(state.hands['p-bob']).toHaveLength(6);
@@ -115,7 +115,7 @@ describe('skipping the turn of a player who is away', () => {
 
   it('refuses to answer a challenge on behalf of a seat it is not addressed to', () => {
     const before = threeSeats({
-      challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: false },
+      challenge: { playerId: 'p-alice', targetId: 'p-bob', color: 'red', bluffed: false },
     });
     expectRejected(applyCommand(before, { type: 'skipTurn', playerId: 'p-carol' }), 'nothingToSkip');
   });
@@ -158,7 +158,7 @@ describe('a player who leaves the round', () => {
 
   it('cancels a challenge whose author has left rather than charging the table', () => {
     const before = threeSeats({
-      challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: true },
+      challenge: { playerId: 'p-alice', targetId: 'p-bob', color: 'red', bluffed: true },
     });
     const { state } = expectOk(applyCommand(before, { type: 'leaveGame', playerId: 'p-alice' }));
     expect(state.challenge).toBeNull();
@@ -170,7 +170,7 @@ describe('a player who leaves the round', () => {
 
   it('releases a challenge window that was waiting on them', () => {
     const before = threeSeats({
-      challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: false },
+      challenge: { playerId: 'p-alice', targetId: 'p-bob', color: 'red', bluffed: false },
     });
     const { state } = expectOk(applyCommand(before, { type: 'leaveGame', playerId: 'p-bob' }));
     expect(state.challenge).toBeNull();

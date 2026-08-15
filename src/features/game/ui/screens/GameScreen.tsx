@@ -9,6 +9,7 @@ import { UNO_PENALTY, requiresColorChoice, type Card, type CardColor } from '../
 import {
   currentPlayerName,
   hasDeclaredLastCard,
+  amOutOfRound,
   isMyTurn,
   mustAnswerChallenge,
   mustDeclareLastCard,
@@ -119,6 +120,7 @@ export function GameScreen(): ReactNode {
 
   const { publicState, feed, actionPending } = table;
   const myTurn = isMyTurn(table);
+  const outOfRound = amOutOfRound(table);
   const playable = playableCardIds(table);
   const mustDeclare = mustDeclareLastCard(table);
   const declared =
@@ -234,8 +236,17 @@ export function GameScreen(): ReactNode {
    * A tap on a card that cannot be played says why, rather than doing nothing.
    * Silence reads as a broken control; "wait for your turn" reads as a rule.
    */
-  const onRefuse = (): void => {
-    const reason = actionPending ? t('game.sending') : myTurn ? t('game.notPlayable') : t('game.notYourTurn');
+  /*
+   * Why a tap was refused, said once.
+   *
+   * Two of these, because a card and the draw pile are refused for different
+   * reasons and used to share one sentence: tapping a dead pile on your own turn
+   * announced "You can only draw on your own turn" to a screen reader while showing
+   * "This card cannot be played right now" on screen, with the turn banner above
+   * both saying it *was* your turn. Each list below is in the same order as the
+   * condition that actually blocks the control, so the two can never drift.
+   */
+  const showRefusal = (reason: string): void => {
     setRefusal(reason);
     announce(reason);
     if (refusalTimer.current !== null) {
@@ -244,6 +255,10 @@ export function GameScreen(): ReactNode {
     refusalTimer.current = setTimeout(() => {
       setRefusal(null);
     }, REFUSAL_MS);
+  };
+
+  const onRefuse = (): void => {
+    showRefusal(actionPending ? t('game.sending') : myTurn ? t('game.notPlayable') : t('game.notYourTurn'));
   };
 
   /*
@@ -259,7 +274,14 @@ export function GameScreen(): ReactNode {
   };
 
   const challenge = publicState.challenge;
+  /*
+   * Two names, because the two sentences are about two different people. The body
+   * the target reads is about whoever *played* the card; the notice everybody else
+   * reads is about whoever has to *answer* it — and naming the author there would
+   * tell the table it is waiting on somebody who has already moved.
+   */
   const challengerName = challenge ? playerName(table, challenge.playerId) : null;
+  const challengedName = challenge ? playerName(table, challenge.targetId) : null;
   // A Wild Draw Four freezes the table for everyone until its victim answers.
   const mineToAnswer = mustAnswerChallenge(table);
   /*
@@ -274,6 +296,16 @@ export function GameScreen(): ReactNode {
    */
   const pileSpent = publicState.drawPileCount === 0 && publicState.discardCount <= 1;
   const canDraw = myTurn && challenge === null && !publicState.hasDrawn && !pileSpent && !actionPending;
+  // Same order as `canDraw`, so the reason given is always the one that blocked it.
+  const drawBlockedReason = !myTurn
+    ? t('game.drawPileBlocked')
+    : challenge !== null
+      ? t('reject.awaitingChallenge')
+      : publicState.hasDrawn
+        ? t('reject.alreadyDrew')
+        : pileSpent
+          ? t('game.pileSpent')
+          : t('game.sending');
   const drawnCard = table.drawnCardId
     ? (table.hand.find((card) => card.id === table.drawnCardId) ?? null)
     : null;
@@ -346,12 +378,14 @@ export function GameScreen(): ReactNode {
             <ActionPrompt
               t={t}
               myTurn={myTurn}
+              outOfRound={outOfRound}
               turnName={turnName}
               actionPending={actionPending}
               challengeOpen={challenge !== null}
               challengerName={challengerName}
+              challengedName={challengedName}
               mineToAnswer={mineToAnswer}
-              challengeColor={publicState.activeColor}
+              challengeColor={challenge?.color ?? publicState.activeColor}
               drawnCard={drawnCard}
               hasDrawn={publicState.hasDrawn}
               pileSpent={pileSpent}
@@ -374,8 +408,10 @@ export function GameScreen(): ReactNode {
           activeColor={publicState.activeColor}
           canDraw={canDraw}
           onDraw={drawCard}
-          onDrawBlocked={onRefuse}
-          drawBlockedReason={publicState.hasDrawn ? t('reject.alreadyDrew') : t('game.drawPileBlocked')}
+          onDrawBlocked={() => {
+            showRefusal(drawBlockedReason);
+          }}
+          drawBlockedReason={drawBlockedReason}
         />
       </div>
 
@@ -447,11 +483,20 @@ export function GameScreen(): ReactNode {
 interface ActionPromptProps {
   readonly t: Translator;
   readonly myTurn: boolean;
+  /** Taken out of this round: no turns, no moves, and back in for the next one. */
+  readonly outOfRound: boolean;
   readonly turnName: string | null;
   readonly actionPending: boolean;
   readonly challengeOpen: boolean;
   readonly challengerName: string | null;
+  readonly challengedName: string | null;
   readonly mineToAnswer: boolean;
+  /**
+   * The colour that was in play when the card was laid, which is what the rule is
+   * judged against — not `activeColor`, which the card has already repainted to the
+   * colour its owner chose. Asking "were you holding the colour you named?" is a
+   * question an honest player cannot answer yes to, and it is not the question.
+   */
   readonly challengeColor: CardColor;
   readonly drawnCard: Card | null;
   readonly hasDrawn: boolean;
@@ -473,10 +518,12 @@ interface ActionPromptProps {
 function ActionPrompt({
   t,
   myTurn,
+  outOfRound,
   turnName,
   actionPending,
   challengeOpen,
   challengerName,
+  challengedName,
   mineToAnswer,
   challengeColor,
   drawnCard,
@@ -514,7 +561,21 @@ function ActionPrompt({
       </Callout>
     ) : (
       <Callout tone="neutral" icon="hourglass" role="status" title={t('game.challengeTitle')}>
-        {t('game.challengeWaiting', { name: challengerName ?? '—' })}
+        {t('game.challengeWaiting', { name: challengedName ?? '—' })}
+      </Callout>
+    );
+  }
+
+  /*
+   * Before the turn check, because a seat that has been taken out of the round is
+   * never on turn and would otherwise be told, for the rest of the round, that it
+   * is waiting for somebody — while every card and the pile answered "wait for your
+   * turn" to a turn that is never coming.
+   */
+  if (outOfRound) {
+    return (
+      <Callout tone="warning" icon="info" role="status" title={t('game.outOfRoundTitle')}>
+        {t('game.outOfRound')}
       </Callout>
     );
   }

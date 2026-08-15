@@ -63,11 +63,11 @@ describe('public game state', () => {
     });
   });
 
-  it('reflects an open challenge, and names both seats', () => {
+  it('reflects an open challenge, and names both seats and the colour', () => {
     const view = toPublicGameState(
-      makeState({ challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: true } }),
+      makeState({ challenge: { playerId: 'p-alice', targetId: 'p-bob', color: 'red', bluffed: true } }),
     );
-    expect(view.challenge).toEqual({ playerId: 'p-alice', targetId: 'p-bob' });
+    expect(view.challenge).toEqual({ playerId: 'p-alice', targetId: 'p-bob', color: 'red' });
   });
 });
 

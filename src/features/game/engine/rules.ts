@@ -49,11 +49,16 @@ export function isCardPlayable(card: Card, context: PlayContext): boolean {
 /**
  * Whether a Wild Draw Four played out of this hand was an honest one.
  *
- * The single question a challenge asks, and the reason it lives here rather than
- * inside the challenge code: the table's card highlight asks it too, so an honest
- * player is shown the card as unplayable and never bluffs by accident. One
- * function, so the hint a player is given and the verdict they are judged by can
- * never disagree.
+ * The single question a challenge asks, asked once at the moment the card is laid
+ * and never re-derived.
+ *
+ * Nothing warns a player who is about to bluff, and that is the rule rather than
+ * an omission: {@link isCardPlayable} returns true for both wilds unconditionally,
+ * so a Wild Draw Four is always offered and its owner is always free to lay one
+ * they should not. A table that greyed the card out would have removed the bluff
+ * from the game, and with it the only decision the challenge exists to make. This
+ * lives beside the matching rules rather than inside the challenge code because it
+ * is a fact about a hand and a colour, which is what this file is about.
  *
  * **Colour only.** Holding a matching number or action does not bar the card —
  * only a card of the colour actually in play does. And a wild in hand never

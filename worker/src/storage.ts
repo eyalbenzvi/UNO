@@ -264,13 +264,23 @@ export const gameStateSchema = z.object({
   /** The card the seat to move has already taken this turn. See the engine. */
   drawnCardId: z.string().min(1).max(40).nullable(),
   /**
-   * An open Wild Draw Four, and the verdict it will be settled by.
+   * An open Wild Draw Four, the colour it is judged against, and the verdict it
+   * will be settled by.
    *
-   * `bluffed` is the whole of it. The hand it was decided from is deliberately not
-   * here: storing a copy of real cards would put the same card in the record twice,
-   * which the conservation census would then have to be taught to forgive.
+   * `bluffed` is the whole of the verdict. The hand it was decided from is
+   * deliberately not here: storing a copy of real cards would put the same card in
+   * the record twice, which the conservation census would then have to be taught
+   * to forgive. `color` is the colour that was in play when the card was laid,
+   * which `activeColor` no longer holds — the card repainted it.
    */
-  challenge: z.object({ playerId, targetId: playerId, bluffed: z.boolean() }).nullable(),
+  challenge: z
+    .object({
+      playerId,
+      targetId: playerId,
+      color: z.enum(['red', 'yellow', 'green', 'blue']),
+      bluffed: z.boolean(),
+    })
+    .nullable(),
   declaredUno: z.array(playerId).max(6),
   /** Seats on one uncalled card, and the turn each became catchable on. */
   unoExposed: z.record(playerId, z.number().int().nonnegative()).default({}),

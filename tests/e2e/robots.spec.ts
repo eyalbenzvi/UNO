@@ -105,7 +105,7 @@ test.describe('a table with a robot in it', () => {
        * have done its job. A vanished button is the move having landed, not a failure —
        * so the click is allowed to miss and the loop looks again.
        */
-      if (await tapIfPresent(page, /Last card!/)) {
+      if (await tapIfPresent(page, /^UNO!/)) {
         continue;
       }
       if (await tapIfPresent(page, 'Take four')) {

@@ -660,21 +660,31 @@ button.card--playable::after {
   transition: background-color var(--dur-base) var(--ease-out);
 }
 
+/*
+ * The rail takes the suit as a fill, so it takes that suit's *ink* with it. Every
+ * one of these pairs clears 4.5:1; `--text-inverse` does not, because yellow is a
+ * light fill and white text on it is 1.6:1. Nothing else in the app puts text on a
+ * suit colour, which is exactly why this was easy to get wrong once.
+ */
 .discard--red {
   background: var(--card-red-solid);
+  --rail-ink: var(--card-red-ink);
 }
 .discard--blue {
   background: var(--card-blue-solid);
+  --rail-ink: var(--card-blue-ink);
 }
 .discard--green {
   background: var(--card-green-solid);
+  --rail-ink: var(--card-green-ink);
 }
 .discard--yellow {
   background: var(--card-yellow-solid);
+  --rail-ink: var(--card-yellow-ink);
 }
 
 .discard__empty {
-  color: var(--text-inverse);
+  color: var(--rail-ink, var(--text-inverse));
   margin: 0;
   padding: var(--space-2);
   text-align: center;

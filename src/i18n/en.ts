@@ -157,6 +157,9 @@ export const en = {
   'game.passTurn': 'End my turn',
   'game.pileSpent': 'There is nothing left to draw. End your turn.',
   'game.pileSpentButPlayable': 'There is nothing left to draw. Play a card, or end your turn.',
+  'game.outOfRoundTitle': 'You are out of this round',
+  'game.outOfRound':
+    'Your cards are frozen and your turns are skipped. You are still at the table, and the next round deals you in.',
   'game.mustDraw': 'No legal card. Draw one from the pile.',
   'game.challengeTitle': 'Wild Draw Four played',
   'game.challengeWaiting': 'Waiting to see whether {name} takes the four cards…',

@@ -267,7 +267,7 @@ describe('choosing between seats', () => {
       players: players('Ann', 'Ben'),
       hands: { [ANN]: cards('wildDrawFour', 'red:5'), [BEN]: cards('blue:4', 'blue:6') },
       currentPlayerIndex: 1,
-      challenge: { playerId: BEN, targetId: ANN, bluffed: false },
+      challenge: { playerId: BEN, targetId: ANN, color: 'red', bluffed: false },
       discardPile: cards('red:9'),
     });
     const box = harness(state, [ANN, BEN]);
@@ -336,7 +336,7 @@ describe('how long a robot thinks', () => {
         hands: { [ANN]: cards('wildDrawFour'), [BEN]: cards('blue:4') },
         currentPlayerIndex: 1,
         discardPile: cards('red:9'),
-        challenge: { playerId: BEN, targetId: ANN, bluffed: false },
+        challenge: { playerId: BEN, targetId: ANN, color: 'red', bluffed: false },
       }),
       [ANN],
       () => 0.5,

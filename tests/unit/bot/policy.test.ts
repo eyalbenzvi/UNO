@@ -68,7 +68,7 @@ describe('answering a Wild Draw Four', () => {
           [BEN]: cards(...Array.from({ length: cardCount }, () => 'blue:4')),
           [CAT]: cards('green:4'),
         },
-        challenge: { playerId: ANN, targetId: BEN, bluffed: true },
+        challenge: { playerId: ANN, targetId: BEN, color: 'red', bluffed: true },
         currentPlayerIndex: 0,
       });
       const move = decide(state, BEN);
@@ -84,7 +84,7 @@ describe('answering a Wild Draw Four', () => {
         [BEN]: cards('blue:4'),
         [CAT]: cards('green:4'),
       },
-      challenge: { playerId: ANN, targetId: BEN, bluffed: true },
+      challenge: { playerId: ANN, targetId: BEN, color: 'red', bluffed: true },
       currentPlayerIndex: 0,
     });
     expect(decide(state, BEN)?.action).toEqual({ type: 'challengeWildDrawFour' });
@@ -94,7 +94,7 @@ describe('answering a Wild Draw Four', () => {
     // Few cards means few chances to have held the colour, and being wrong costs six.
     const state = table({
       hands: { [ANN]: cards('red:5'), [BEN]: cards('blue:4'), [CAT]: cards('green:4') },
-      challenge: { playerId: ANN, targetId: BEN, bluffed: false },
+      challenge: { playerId: ANN, targetId: BEN, color: 'red', bluffed: false },
       currentPlayerIndex: 0,
     });
     expect(decide(state, BEN)?.action).toEqual({ type: 'acceptWildDrawFour' });
@@ -113,7 +113,7 @@ describe('answering a Wild Draw Four', () => {
           [BEN]: cards('blue:4'),
           [CAT]: cards('green:4'),
         },
-        challenge: { playerId: ANN, targetId: BEN, bluffed },
+        challenge: { playerId: ANN, targetId: BEN, color: 'red', bluffed },
         currentPlayerIndex: 0,
       });
     expect(decide(build(true), BEN)).toEqual(decide(build(false), BEN));
@@ -126,7 +126,7 @@ describe('answering a Wild Draw Four', () => {
         [BEN]: cards('blue:4', 'blue:6'),
         [CAT]: cards('green:4', 'green:6'),
       },
-      challenge: { playerId: ANN, targetId: BEN, bluffed: false },
+      challenge: { playerId: ANN, targetId: BEN, color: 'red', bluffed: false },
       currentPlayerIndex: 0,
     });
     expect(decide(state, ANN)).toBeNull();
@@ -135,7 +135,7 @@ describe('answering a Wild Draw Four', () => {
   it('still calls its own UNO while the table is frozen', () => {
     const state = table({
       hands: { [ANN]: cards('red:5'), [BEN]: cards('blue:4', 'blue:6'), [CAT]: cards('green:4') },
-      challenge: { playerId: BEN, targetId: CAT, bluffed: false },
+      challenge: { playerId: BEN, targetId: CAT, color: 'red', bluffed: false },
       currentPlayerIndex: 1,
       declaredUno: [],
     });

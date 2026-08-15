@@ -162,7 +162,12 @@ export const publicGameStateSchema = z.object({
    * and never the card's id — the ids in this deck name the card.
    */
   hasDrawn: z.boolean(),
-  challenge: z.object({ playerId: playerIdSchema, targetId: playerIdSchema }).nullable(),
+  /**
+   * `color` is the colour that was in play when the card was laid, not the one it
+   * named. It is the colour the rule is judged against, and by the time this
+   * reaches anybody `activeColor` has already moved to the chosen one.
+   */
+  challenge: z.object({ playerId: playerIdSchema, targetId: playerIdSchema, color: colorSchema }).nullable(),
   declaredUno: z.array(playerIdSchema).max(6).readonly(),
   /** Seats that can be caught right now, with the window already resolved. */
   catchableUno: z.array(playerIdSchema).max(6).readonly(),
@@ -202,6 +207,7 @@ export const gameEventSchema = z.discriminatedUnion('type', [
     type: z.literal('challengeOpened'),
     playerId: playerIdSchema,
     targetId: playerIdSchema,
+    color: colorSchema,
   }),
   z.object({
     type: z.literal('challengeDeclined'),

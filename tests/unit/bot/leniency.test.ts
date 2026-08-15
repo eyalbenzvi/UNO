@@ -246,7 +246,7 @@ describe('calling a bluff', () => {
       hands,
       discardPile: cards('red:9', 'wildDrawFour'),
       currentPlayerIndex: players('Ann', 'Ben', 'Cat').findIndex((player) => player.id === by),
-      challenge: { playerId: by, targetId: ANN, bluffed: true },
+      challenge: { playerId: by, targetId: ANN, color: 'red', bluffed: true },
       ...(assist ? { assist } : {}),
     });
   }

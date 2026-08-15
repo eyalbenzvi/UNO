@@ -44,6 +44,18 @@ export interface ChallengeState {
   /** The next active seat — the only seat that may answer, and the one drawing four. */
   readonly targetId: PlayerId;
   /**
+   * The colour that was in play when the card was laid — the one the rule is
+   * judged against, and the one the target has to be told about.
+   *
+   * Kept because it is *gone* by the time anybody sees the challenge: a Wild Draw
+   * Four repaints the table, so `activeColor` is the colour its owner just chose.
+   * A screen reading that would ask "were you holding the colour you named?", which
+   * an honest player cannot have been, and which is not the question. Public,
+   * unlike {@link bluffed}: everybody at a real table saw what was on the pile a
+   * moment ago.
+   */
+  readonly color: CardColor;
+  /**
    * Whether the play was a bluff. The whole verdict, decided once, at play time.
    *
    * Precomputed rather than re-derived when the challenge is made, for two
@@ -274,7 +286,13 @@ export type GameEvent =
   | { readonly type: 'colorChosen'; readonly playerId: PlayerId; readonly color: CardColor }
   | { readonly type: 'playerSkipped'; readonly playerId: PlayerId }
   /** A Wild Draw Four was played and is waiting for its victim to answer. */
-  | { readonly type: 'challengeOpened'; readonly playerId: PlayerId; readonly targetId: PlayerId }
+  | {
+      readonly type: 'challengeOpened';
+      readonly playerId: PlayerId;
+      readonly targetId: PlayerId;
+      /** The colour in play when the card was laid — what the challenge is about. */
+      readonly color: CardColor;
+    }
   /** The victim took the four cards without calling the bluff. */
   | { readonly type: 'challengeDeclined'; readonly playerId: PlayerId; readonly drawn: number }
   /**

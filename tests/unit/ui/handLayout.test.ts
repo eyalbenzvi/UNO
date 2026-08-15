@@ -111,9 +111,23 @@ describe('handCardScale', () => {
     }
   });
 
-  it('keeps the floor and the ceiling where they were', () => {
+  it('keeps the ceiling, and holds the floor where two rows still fit', () => {
     expect(handCardScale(1)).toBe(1);
-    expect(handCardScale(30)).toBe(0.76);
+    expect(handCardScale(30)).toBe(0.73);
+  });
+
+  it('shrinks every wrapping hand by at least the card ratio it was calibrated for', () => {
+    /*
+     * The table was solved for a card 1.5 times as tall as it is wide. The cards
+     * are 88/56 now — the printed proportion — which is 4.7 per cent taller, and
+     * this table's job is to keep two rows inside the height the hand is allowed.
+     * Anything that wraps has to give that height back, or the second row goes off
+     * the bottom of a phone.
+     */
+    const TALLER = 88 / 56 / 1.5;
+    for (let count = 9; count <= 30; count += 1) {
+      expect(handCardScale(count) * TALLER).toBeLessThanOrEqual(handCardScale(8));
+    }
   });
 
   it('takes no single step larger than eight per cent', () => {

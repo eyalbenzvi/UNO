@@ -12,7 +12,7 @@ import {
 } from './helpers.tsx';
 import { getPlayableCardIds } from '../../src/features/game/engine/rules.ts';
 import { useAppStore } from '../../src/features/game/state/store.ts';
-import { playContextFromPublic } from '../../src/features/game/engine/views.ts';
+import { playContextFromPublic, type PublicGameState } from '../../src/features/game/engine/views.ts';
 import type { Card } from '../../src/features/game/engine/cards.ts';
 
 beforeEach(resetStore);
@@ -25,7 +25,9 @@ function situation(options: {
   myTurn?: boolean;
   hasDrawn?: boolean;
   drawnCardId?: string | null;
-  challenge?: { playerId: string; targetId: string } | null;
+  challenge?: PublicGameState['challenge'];
+  /** This seat has been taken out of the round it is watching. */
+  iHaveLeft?: boolean;
 }): void {
   const fixture = enterGame({ myTurn: options.myTurn ?? true });
   setState({
@@ -39,7 +41,12 @@ function situation(options: {
       hasDrawn: options.hasDrawn ?? typeof options.drawnCardId === 'string',
       challenge: options.challenge ?? null,
       players: [
-        { id: HOST_ID, name: 'דנה', cardCount: options.hand.length },
+        {
+          id: HOST_ID,
+          name: 'דנה',
+          cardCount: options.hand.length,
+          ...(options.iHaveLeft === true ? { left: true } : {}),
+        },
         { id: GUEST_ID, name: 'אלי', cardCount: 5 },
       ],
     },
@@ -237,8 +244,14 @@ describe('the draw pile', () => {
     const pile = screen.getByRole('button', { name: /חבילת משיכה/ });
     expect(pile).toHaveAttribute('aria-disabled', 'true');
 
+    /*
+     * The pile's own reason, not a card's. The two used to share one sentence, and
+     * the pile is blocked for four reasons a card is not — a challenge, a card
+     * already drawn, a spent pile — so the shared one was wrong more often than it
+     * was right, and the screen-reader description disagreed with the toast.
+     */
     await user.click(pile);
-    expect(screen.getByRole('alert')).toHaveTextContent('צריך לחכות לתור שלך.');
+    expect(screen.getByRole('alert')).toHaveTextContent('אפשר למשוך קלף רק בתור שלך.');
     /*
      * And the prompt survives. A refusal replaces the whole action prompt for
      * 2.6 seconds, so routing this through the card path unchanged would have
@@ -340,7 +353,7 @@ describe('wild cards and the colour picker', () => {
     setState({ playCard });
     const { user } = renderApp();
 
-    await user.click(screen.getByRole('button', { name: 'הנחת אדום עצור' }));
+    await user.click(screen.getByRole('button', { name: 'הנחת עצור אדום' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(playCard).toHaveBeenCalledWith(redSkip.id);
   });
@@ -383,13 +396,34 @@ describe('wild cards and the colour picker', () => {
   });
 });
 
+describe('a player taken out of the round', () => {
+  /*
+   * A removed seat keeps its cards and its socket and simply stops taking turns, so
+   * from the inside the table looks entirely normal and refuses everything. Before
+   * this it said "waiting for Dana" for the rest of the round while every tap
+   * answered "wait for your turn" — about a turn that was never coming.
+   */
+  it('is told so, instead of being left waiting for a turn that will not come', () => {
+    situation({
+      hand: [red5, blue3],
+      discardTop: red9,
+      activeColor: 'red',
+      myTurn: false,
+      iHaveLeft: true,
+    });
+    renderApp();
+    expect(screen.getByText('הוצאת מהסבב הזה')).toBeInTheDocument();
+    expect(screen.queryByText(/ממתינים ל/)).not.toBeInTheDocument();
+  });
+});
+
 describe('a Wild Draw Four waiting to be answered', () => {
   it('offers the two answers to the seat that has to give one', () => {
     situation({
       hand: [blue3, red5],
       discardTop: red9,
       activeColor: 'red',
-      challenge: { playerId: GUEST_ID, targetId: HOST_ID },
+      challenge: { playerId: GUEST_ID, targetId: HOST_ID, color: 'red' },
     });
     renderApp();
     expect(screen.getByText('הונח ג׳וקר קח 4')).toBeInTheDocument();
@@ -397,16 +431,44 @@ describe('a Wild Draw Four waiting to be answered', () => {
     expect(screen.getByRole('button', { name: 'הטלת ספק' })).toBeInTheDocument();
   });
 
-  it('tells everybody else that the table is waiting, with no buttons', () => {
+  /*
+   * The colour the sentence names is the one that was in play when the card was
+   * laid — never `activeColor`, which the card has already repainted to whatever
+   * its owner chose. Getting this wrong misinforms the one decision in the game
+   * that costs six cards, and it is wrong in almost every real play: an honest
+   * Wild Draw Four is laid precisely because its owner could not follow the colour
+   * in play, so the colour they name is a different one.
+   */
+  it('asks about the colour that was in play, not the one the card chose', () => {
+    situation({
+      hand: [blue3, red5],
+      discardTop: red9,
+      activeColor: 'green',
+      challenge: { playerId: GUEST_ID, targetId: HOST_ID, color: 'red' },
+    });
+    renderApp();
+    const prompt = screen.getByText(/מחזיק\/ה קלף/);
+    expect(prompt).toHaveTextContent('אדום');
+    expect(prompt).not.toHaveTextContent('ירוק');
+  });
+
+  it('tells everybody else which player the table is waiting on', () => {
+    /*
+     * The seat that has to answer, not the one that played the card. Naming the
+     * author points every waiting notice at somebody who has already moved, and
+     * leaves the table looking at the wrong person.
+     */
     situation({
       hand: [blue3, red5],
       discardTop: red9,
       activeColor: 'red',
       myTurn: false,
-      challenge: { playerId: HOST_ID, targetId: GUEST_ID },
+      challenge: { playerId: HOST_ID, targetId: GUEST_ID, color: 'red' },
     });
     renderApp();
-    expect(screen.getByText(/ממתינים לראות אם/)).toBeInTheDocument();
+    const notice = screen.getByText(/ממתינים לראות אם/);
+    expect(notice).toHaveTextContent('אלי');
+    expect(notice).not.toHaveTextContent('דנה');
     expect(screen.queryByRole('button', { name: 'לקיחת ארבעה' })).not.toBeInTheDocument();
   });
 
@@ -415,7 +477,7 @@ describe('a Wild Draw Four waiting to be answered', () => {
       hand: [red5, blue3],
       discardTop: red9,
       activeColor: 'red',
-      challenge: { playerId: GUEST_ID, targetId: HOST_ID },
+      challenge: { playerId: GUEST_ID, targetId: HOST_ID, color: 'red' },
     });
     renderApp();
     expectRefused('הנחת אדום 5');
@@ -428,7 +490,7 @@ describe('a Wild Draw Four waiting to be answered', () => {
       hand: [blue3],
       discardTop: red9,
       activeColor: 'red',
-      challenge: { playerId: GUEST_ID, targetId: HOST_ID },
+      challenge: { playerId: GUEST_ID, targetId: HOST_ID, color: 'red' },
     });
     setState({ acceptWildDrawFour, challengeWildDrawFour });
     const { user } = renderApp();

@@ -135,7 +135,10 @@ describe('the flight layer, given a platform that animates', () => {
     renderApp();
     act(() => {
       setState({
-        beat: { seq: 1, events: [{ type: 'challengeOpened', playerId: 'pl_other', targetId: GUEST_ID }] },
+        beat: {
+          seq: 1,
+          events: [{ type: 'challengeOpened', playerId: 'pl_other', targetId: GUEST_ID, color: 'red' }],
+        },
       });
     });
     const marks = document.querySelectorAll('.flight-layer__pulse');

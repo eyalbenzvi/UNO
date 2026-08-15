@@ -170,7 +170,7 @@ describe('host message validation', () => {
       { type: 'turnPassed', playerId: 'p-alice' },
       { type: 'colorChosen', playerId: 'p-alice', color: 'blue' },
       { type: 'playerSkipped', playerId: 'p-bob' },
-      { type: 'challengeOpened', playerId: 'p-alice', targetId: 'p-bob' },
+      { type: 'challengeOpened', playerId: 'p-alice', targetId: 'p-bob', color: 'red' },
       { type: 'challengeDeclined', playerId: 'p-bob', drawn: 4 },
       {
         type: 'challengeResolved',

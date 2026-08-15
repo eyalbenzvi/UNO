@@ -49,11 +49,19 @@ export interface PublicGameState {
    */
   readonly hasDrawn: boolean;
   /**
-   * Set while a Wild Draw Four waits to be answered. Both seats are named: who
-   * played it, and who has to answer. Whether it was a bluff is not — that is the
-   * whole question the challenge is for.
+   * Set while a Wild Draw Four waits to be answered. Both seats are named — who
+   * played it, and who has to answer — along with the colour that was in play when
+   * it was laid, which is the colour the rule is judged against and the one the
+   * table can no longer see, the card having repainted it.
+   *
+   * Whether it was a bluff is not published: that is the whole question the
+   * challenge is for.
    */
-  readonly challenge: { readonly playerId: PlayerId; readonly targetId: PlayerId } | null;
+  readonly challenge: {
+    readonly playerId: PlayerId;
+    readonly targetId: PlayerId;
+    readonly color: CardColor;
+  } | null;
   /**
    * Who has called UNO. Public on purpose: at a real table the call is a shout
    * everybody hears, and it is what tells the others whether the player on one
@@ -117,7 +125,11 @@ export function toPublicGameState(state: GameState): PublicGameState {
     currentPlayerId: state.players[state.currentPlayerIndex]?.id ?? null,
     hasDrawn: state.drawnCardId !== null,
     challenge: state.challenge
-      ? { playerId: state.challenge.playerId, targetId: state.challenge.targetId }
+      ? {
+          playerId: state.challenge.playerId,
+          targetId: state.challenge.targetId,
+          color: state.challenge.color,
+        }
       : null,
     declaredUno: state.declaredUno.slice(),
     catchableUno: catchableSeats(state),

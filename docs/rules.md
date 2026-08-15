@@ -218,8 +218,14 @@ not start playing the two-player rules for as long as a phone is in a tunnel.
 
 ### A player who is not there
 
-A seat that stops answering is held for five minutes, and the table says who it is waiting
-for. When the grace runs out the room passes that turn:
+A seat that stops answering is **held for five minutes** — that is how long the seat itself
+survives, and the table says who it is waiting for and counts it down. The _turn_, though, is
+not held nearly that long: about **twelve seconds** after it reaches an absent seat the room
+passes it, and a seat that has already been passed once is passed again the moment its turn
+comes round, with no wait at all. So a phone in a lift for a minute costs a card or two per
+orbit of the table, and the seat is still there when it comes back.
+
+When a turn is passed:
 
 - The skip costs **one card** — the same card the same turn would have cost had they been
   there to take it. A free pass would be the cheapest turn at the table.
@@ -281,10 +287,12 @@ which seats are answering for themselves — and nothing else, which is a test r
 promise. Every legality decision it makes goes through the same function the app's own
 highlight uses. See [robots.md](robots.md).
 
-Its challenge policy is a real decision made on real evidence: it knows the colour that was
-in play and how many cards the player is holding, which is exactly what a person at the table
-knows. It does not read the verdict, and there is a test that two tables differing only in
-whether the play was a bluff produce the same decision.
+Its challenge policy is a real decision made on real evidence, and a simple one: it calls the
+bluff when the player who laid the card is holding four or more, because a bigger hand had
+more chances to hold the colour. That is less than a person at the table would weigh — a
+person also watches which colours that player has been dodging — and deliberately so. What
+matters is that it does not read the verdict, and there is a test that two tables differing
+only in whether the play was a bluff produce the same decision.
 
 ### Worked examples
 
@@ -442,8 +450,9 @@ round even though she never called.
 
 ### שחקן שאינו נוכח
 
-מושב שהפסיק לענות נשמר חמש דקות. כשהזמן נגמר החדר מעביר את התור בעלות של **קלף אחד** — ומושב
-שכבר משך לא משלם שוב. מושב שאינו נוכח כדי לענות לג׳וקר קח 4 **לוקח את הקלפים** במקום להטיל
+מושב שהפסיק לענות **נשמר חמש דקות** — כך שהמקום לא הולך לאיבוד. אבל _התור_ אינו ממתין כל כך:
+כ־**12 שניות** אחרי שהוא מגיע למושב שאינו נוכח החדר מעביר אותו, ומושב שכבר דולג פעם אחת מדולג
+מיד בפעם הבאה. המעבר עולה **קלף אחד** — ומושב שכבר משך לא משלם שוב. מושב שאינו נוכח כדי לענות לג׳וקר קח 4 **לוקח את הקלפים** במקום להטיל
 ספק. מי שאינו נוכח **לא ניתן לתפיסה** על אי־הכרזה: הוא לא יכול לצעוק.
 
 ### החלטות שקיבלנו במקומות שהמהדורות חולקות

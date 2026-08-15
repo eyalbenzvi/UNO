@@ -399,11 +399,17 @@ function finishIfEmpty(draft: Draft, playerId: PlayerId, events: GameEvent[]): b
  * Opens the window in which the next seat may take the four cards or call the
  * bluff. The table is frozen until it answers.
  */
-function openChallenge(draft: Draft, playerId: PlayerId, bluffed: boolean, events: GameEvent[]): void {
+function openChallenge(
+  draft: Draft,
+  playerId: PlayerId,
+  bluffed: boolean,
+  color: CardColor,
+  events: GameEvent[],
+): void {
   const targetIndex = nextActiveIndex(draft, draft.currentPlayerIndex);
   const target = draft.players[targetIndex] as EnginePlayer;
-  draft.challenge = { playerId, targetId: target.id, bluffed };
-  events.push({ type: 'challengeOpened', playerId, targetId: target.id });
+  draft.challenge = { playerId, targetId: target.id, color, bluffed };
+  events.push({ type: 'challengeOpened', playerId, targetId: target.id, color });
 }
 
 /**
@@ -573,6 +579,9 @@ function applyPlayCard(
    */
   const bluffed =
     card.kind === 'wildDrawFour' ? !isWildDrawFourHonest(hand, state.activeColor, cardId) : false;
+  // Read here for the same reason and at the same moment as the verdict: a line
+  // later the table has been repainted in the colour this card just named.
+  const challengedColor = state.activeColor;
 
   beginTurnAction(draft, playerId);
 
@@ -598,7 +607,7 @@ function applyPlayCard(
   }
 
   if (card.kind === 'wildDrawFour') {
-    openChallenge(draft, playerId, bluffed, events);
+    openChallenge(draft, playerId, bluffed, challengedColor, events);
   } else {
     resolveCardEffect(draft, card, playerId, events);
     finishIfEmpty(draft, playerId, events);

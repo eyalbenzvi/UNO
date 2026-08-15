@@ -2759,7 +2759,9 @@ export class GameRoom {
     if (this.game === null) {
       return;
     }
-    this.mutateForTests({ challenge: { playerId: byPlayerId, targetId, bluffed } });
+    this.mutateForTests({
+      challenge: { playerId: byPlayerId, targetId, color: this.game.activeColor, bluffed },
+    });
   }
 
   /** Test seam: what the alarm queue holds for one kind, or `null`. */

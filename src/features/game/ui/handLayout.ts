@@ -47,23 +47,33 @@ export const UNMEASURED: HandLayout = { perRow: 0, strip: 0, card: 0 };
  * instead would feed the new card size back into the next measurement, and a hand
  * that sits on the boundary would oscillate between two sizes for ever.
  *
- * Four steps rather than two. The floor and the ceiling are unchanged; what
- * changed is the size of the largest single jump, from fourteen per cent down to
- * about seven. That was tolerable while the resize was instantaneous and read as
- * nothing at all, but the hand now animates between layouts — and an animated
- * fourteen per cent shrug is something you can watch happen.
+ * Five steps rather than two. The largest single jump is about seven per cent,
+ * down from fourteen. That was tolerable while the resize was instantaneous and
+ * read as nothing at all, but the hand now animates between layouts — and an
+ * animated fourteen per cent shrug is something you can watch happen.
+ *
+ * Every step that wraps to a second row was then taken down a further 4.5 per
+ * cent, when the cards took the printed 56 × 88 proportion instead of the 2:3 they
+ * had been drawn at. A card 4.7 per cent taller costs about ten pixels per row,
+ * and this table's whole job is to keep two rows inside the height the hand is
+ * allowed — so a ratio change that nobody would notice on one card is exactly the
+ * kind of thing that pushes the second row off a 664 px phone. The single-row
+ * sizes keep their full scale: there is only one row's worth of height to find.
  */
 export function handCardScale(count: number): number {
   if (count <= 8) {
     return 1;
   }
-  if (count <= 10) {
+  if (count <= 9) {
     return 0.93;
   }
-  if (count <= 12) {
-    return 0.86;
+  if (count <= 11) {
+    return 0.87;
   }
-  return count <= 15 ? 0.81 : 0.76;
+  if (count <= 13) {
+    return 0.81;
+  }
+  return count <= 16 ? 0.77 : 0.73;
 }
 
 /**

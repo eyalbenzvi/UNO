@@ -165,7 +165,7 @@ describe('turn selectors', () => {
     expect(
       mustAnswerChallenge(
         state({
-          publicState: { ...publicState, challenge: { playerId: 'a', targetId: 'b' } },
+          publicState: { ...publicState, challenge: { playerId: 'a', targetId: 'b', color: 'red' } },
         }),
       ),
     ).toBe(true);
@@ -173,7 +173,7 @@ describe('turn selectors', () => {
     expect(
       mustAnswerChallenge(
         state({
-          publicState: { ...publicState, challenge: { playerId: 'b', targetId: 'c' } },
+          publicState: { ...publicState, challenge: { playerId: 'b', targetId: 'c', color: 'red' } },
         }),
       ),
     ).toBe(false);

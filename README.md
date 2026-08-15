@@ -83,7 +83,7 @@ is for. See [docs/assist.md](docs/assist.md).
 | Persistence on device | `localStorage` for preferences and a rejoin token                       | Free                        |
 | Analytics / telemetry | None at all                                                             | Free                        |
 
-The server is yours: about 3,400 lines of TypeScript in `worker/`, deployed to a free
+The server is yours: about 3,700 lines of TypeScript in `worker/`, deployed to a free
 Cloudflare account with no credit card. A full game evening uses well under one percent of the
 free plan's daily allowance — a room wakes only when somebody moves or a deadline comes due,
 and an empty one costs nothing at all until it deletes itself.
@@ -154,9 +154,12 @@ Requirements: Node.js 20+ (CI uses 22) and npm 10+.
 ## Running the tests
 
 ```bash
-npm test                # 880 unit + component tests
+npm test                # 887 unit + component tests
 npm run test:coverage   # same, with coverage thresholds enforced
-npm run test:e2e        # end-to-end scenarios x 2 viewports (needs a Chromium download once)
+
+# End-to-end, x 2 viewports. Build first: the suite serves `dist/`, and the room's
+# URL is baked into the bundle. (Needs a Chromium download once.)
+npm run build:e2e && npm run test:e2e
 
 cd worker && npm run verify   # 101 room tests, with their own coverage floor
 cd worker && npm run smoke    # a whole round over real sockets against wrangler dev

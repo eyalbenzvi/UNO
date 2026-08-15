@@ -900,25 +900,34 @@ describe('the points match', () => {
   });
 
   it('ends the match when somebody crosses the target, and a new round starts a new one', () => {
+    /*
+     * Both seats are put on the brink, so whichever of them wins the round crosses
+     * 500 and the assertions below always run. Putting only one there and guarding
+     * on whether that one happened to win was the previous shape, and it meant a
+     * different seed — or a change to who opens — quietly skipped the whole body
+     * and passed green having asserted nothing about the match ending at all.
+     */
     const table = new Harness(MATCH_SEED);
     const creator = table.join('Dana', POINTS);
     const guest = table.join('Yoni');
     creator.client.say('roomCommand', { command: { type: 'startGame' } });
     // Straight to the crossing rather than playing a dozen rounds for it.
     table.room.forcePointsForTests(creator.playerId, 495);
+    table.room.forcePointsForTests(guest.playerId, 495);
     playOut([creator, guest]);
 
     const lobby = creator.client.lobby;
-    if ((lobby?.players.find((player) => player.id === creator.playerId)?.points ?? 0) >= 500) {
-      expect(lobby?.matchWinnerId).toBe(creator.playerId);
+    const winner = creator.client.state?.winnerId as string;
+    expect(winner).toBeTruthy();
+    expect(lobby?.players.find((player) => player.id === winner)?.points ?? 0).toBeGreaterThanOrEqual(500);
+    expect(lobby?.matchWinnerId).toBe(winner);
 
-      // Playing again starts a fresh match rather than continuing a won one.
-      creator.client.say('playAgainVote', { agree: true });
-      guest.client.say('playAgainVote', { agree: true });
-      const next = creator.client.lobby;
-      expect(next?.matchWinnerId).toBeNull();
-      expect(next?.players.every((player) => (player.points ?? 0) === 0)).toBe(true);
-    }
+    // Playing again starts a fresh match rather than continuing a won one.
+    creator.client.say('playAgainVote', { agree: true });
+    guest.client.say('playAgainVote', { agree: true });
+    const next = creator.client.lobby;
+    expect(next?.matchWinnerId).toBeNull();
+    expect(next?.players.every((player) => (player.points ?? 0) === 0)).toBe(true);
   });
 });
 

@@ -82,6 +82,25 @@ export function myPoints(state: Pick<TableSnapshot, 'lobby' | 'localPlayerId'>):
   return seat?.points ?? null;
 }
 
+/**
+ * Whether this player has been taken out of the round they are watching.
+ *
+ * A removed seat keeps its cards and its socket and simply stops taking turns, so
+ * from the inside the table looks entirely normal — and refuses everything. Without
+ * this the only clue is one line in a log that has probably scrolled, and the
+ * player spends the rest of the round tapping cards that answer "wait for your
+ * turn" on a turn that is never coming.
+ *
+ * They are still in the room, and the next round deals them in.
+ */
+export function amOutOfRound(state: Pick<TableSnapshot, 'publicState' | 'localPlayerId'>): boolean {
+  const { publicState, localPlayerId } = state;
+  if (publicState === null || publicState.phase !== 'playing' || localPlayerId === null) {
+    return false;
+  }
+  return publicState.players.find((player) => player.id === localPlayerId)?.left === true;
+}
+
 export function isMyTurn(state: Pick<TableSnapshot, 'publicState' | 'localPlayerId'>): boolean {
   const { publicState, localPlayerId } = state;
   return (

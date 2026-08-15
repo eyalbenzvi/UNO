@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../../../src/features/game/engine/engine.ts';
 import { isWildDrawFourHonest } from '../../../src/features/game/engine/rules.ts';
-import { toPublicGameState } from '../../../src/features/game/engine/views.ts';
+import { UNO_PENALTY, WILD_DRAW_FOUR_PENALTY } from '../../../src/features/game/engine/cards.ts';
+import { catchableSeats, toPublicGameState } from '../../../src/features/game/engine/views.ts';
 import { card, cards, expectOk, expectRejected, makeState, players } from '../helpers/engineFixtures.ts';
 
 /**
@@ -83,7 +84,7 @@ describe('playing a Wild Draw Four', () => {
   it('freezes the table: nobody else may move while it waits', () => {
     const state = makeState({
       players: players('Alice', 'Bob', 'Cara'),
-      challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: false },
+      challenge: { playerId: 'p-alice', targetId: 'p-bob', color: 'red', bluffed: false },
       currentPlayerIndex: 0,
       hands: {
         'p-alice': cards('red:2', 'red:3'),
@@ -179,7 +180,7 @@ describe('answering it', () => {
       currentPlayerIndex: 0,
       activeColor: 'green',
       discardPile: cards('red:5'),
-      challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed },
+      challenge: { playerId: 'p-alice', targetId: 'p-bob', color: 'red', bluffed },
       hands: {
         'p-alice': cards('red:2', 'red:3'),
         'p-bob': cards('red:4', 'red:5'),
@@ -245,13 +246,129 @@ describe('answering it', () => {
   });
 });
 
-describe('what the table is told', () => {
-  it('publishes both seats and never the verdict', () => {
+describe('the two shouts, while the table is frozen', () => {
+  /*
+   * Calling UNO and catching somebody are legal at any moment, an open challenge
+   * included — they race each other on purpose, and gating them on the turn would
+   * hand every tie to whoever broke the rule. `docs/rules.md` spends a paragraph on
+   * the consequence, and this is the shape that produces it: a player whose Wild
+   * Draw Four was their *second-to-last* card is left on one, and stamped
+   * catchable, at the same instant the table freezes behind her. So a catch really
+   * can add two cards to the very hand the challenge will be judged against — and
+   * the verdict, decided when the card was laid, must not move for it. A bluffer
+   * must not be exonerated by being caught out, nor an honest player condemned.
+   */
+  function frozen() {
     const state = makeState({
-      challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: true },
+      players: players('Alice', 'Bob', 'Cara'),
+      currentPlayerIndex: 0,
+      activeColor: 'red',
+      discardPile: cards('red:9'),
+      hands: {
+        'p-alice': cards('wildDrawFour', 'red:2'),
+        'p-bob': cards('blue:3', 'blue:4'),
+        'p-cara': cards('green:5', 'green:6'),
+      },
+      drawPile: cards('blue:1', 'blue:2', 'blue:5', 'blue:6', 'blue:7', 'blue:8', 'yellow:1'),
+    });
+    const cardId = state.hands['p-alice']![0]!.id;
+    return expectOk(
+      applyCommand(state, { type: 'playCard', playerId: 'p-alice', cardId, chosenColor: 'green' }),
+    ).state;
+  }
+
+  it('lets the player who laid it call UNO, from under the window it opened', () => {
+    const open = frozen();
+    expect(catchableSeats(open)).toContain('p-alice');
+    const { state } = expectOk(applyCommand(open, { type: 'declareUno', playerId: 'p-alice' }));
+    expect(state.declaredUno).toContain('p-alice');
+    expect(state.challenge).not.toBeNull();
+    expect(catchableSeats(state)).not.toContain('p-alice');
+  });
+
+  it('lets her be caught, and does not move the verdict when she is', () => {
+    const open = frozen();
+    const { state: caught } = expectOk(
+      applyCommand(open, { type: 'catchUno', playerId: 'p-bob', targetId: 'p-alice' }),
+    );
+    expect(caught.hands['p-alice']).toHaveLength(1 + UNO_PENALTY);
+    expect(caught.challenge).toEqual(open.challenge);
+
+    /*
+     * And the bluff still stands. Alice held a red 2 when she laid the card, which
+     * is the only moment that counts — the two cards the catch has just put in her
+     * hand are not evidence, and re-deriving the verdict here would let a player
+     * launder a bluff by being caught out.
+     */
+    const { state: called } = expectOk(
+      applyCommand(caught, { type: 'challengeWildDrawFour', playerId: 'p-bob' }),
+    );
+    expect(called.hands['p-alice']).toHaveLength(1 + UNO_PENALTY + WILD_DRAW_FOUR_PENALTY);
+  });
+
+  it('lets the seat it is aimed at answer, and nobody else', () => {
+    const open = frozen();
+    expectRejected(
+      applyCommand(open, { type: 'challengeWildDrawFour', playerId: 'p-cara' }),
+      'notTheChallenger',
+    );
+    expectRejected(
+      applyCommand(open, { type: 'acceptWildDrawFour', playerId: 'p-cara' }),
+      'notTheChallenger',
+    );
+    const { state } = expectOk(applyCommand(open, { type: 'challengeWildDrawFour', playerId: 'p-bob' }));
+    expect(state.challenge).toBeNull();
+  });
+});
+
+describe('what the table is told', () => {
+  /*
+   * The colour published is the one the challenge is *about*, not the one the card
+   * named — and the two are almost never the same, because an honest Wild Draw Four
+   * is played precisely when its owner cannot follow the colour in play.
+   *
+   * This is the fact the target has to decide on, and it is gone from the table by
+   * the time they see the prompt: `activeColor` has already moved to the chosen
+   * colour. Publishing that instead asks "were you holding the colour you named?",
+   * which is a question nobody can answer yes to honestly, and it was on screen.
+   */
+  it('names the colour the rule is judged against, not the one the card chose', () => {
+    const state = makeState({
+      players: players('Alice', 'Bob'),
+      currentPlayerIndex: 0,
+      activeColor: 'red',
+      discardPile: cards('red:9'),
+      hands: { 'p-alice': cards('wildDrawFour', 'red:2'), 'p-bob': cards('blue:3') },
+      drawPile: cards('blue:1', 'blue:2', 'blue:4', 'blue:5', 'blue:6'),
+    });
+    const cardId = state.hands['p-alice']![0]!.id;
+    const { state: next, events } = expectOk(
+      applyCommand(state, { type: 'playCard', playerId: 'p-alice', cardId, chosenColor: 'green' }),
+    );
+
+    const view = toPublicGameState(next);
+    expect(view.activeColor).toBe('green');
+    expect(view.challenge?.color).toBe('red');
+    expect(events).toContainEqual({
+      type: 'challengeOpened',
+      playerId: 'p-alice',
+      targetId: 'p-bob',
+      color: 'red',
+    });
+
+    // And it is the colour the verdict was actually reached on: Alice held a red 2.
+    const { state: called } = expectOk(
+      applyCommand(next, { type: 'challengeWildDrawFour', playerId: 'p-bob' }),
+    );
+    expect(called.hands['p-alice']).toHaveLength(1 + WILD_DRAW_FOUR_PENALTY);
+  });
+
+  it('publishes both seats and the colour, and never the verdict', () => {
+    const state = makeState({
+      challenge: { playerId: 'p-alice', targetId: 'p-bob', color: 'red', bluffed: true },
     });
     const view = toPublicGameState(state);
-    expect(view.challenge).toEqual({ playerId: 'p-alice', targetId: 'p-bob' });
+    expect(view.challenge).toEqual({ playerId: 'p-alice', targetId: 'p-bob', color: 'red' });
     // Whether it was a bluff is the whole question the challenge exists to ask.
     expect(JSON.stringify(view)).not.toContain('bluffed');
   });

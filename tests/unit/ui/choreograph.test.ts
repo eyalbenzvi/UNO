@@ -106,7 +106,7 @@ describe('what each event is worth', () => {
     },
     { event: { type: 'playerSkipped', playerId: THEM }, count: 1, note: 'a Skip is felt at the seat' },
     {
-      event: { type: 'challengeOpened', playerId: THEM, targetId: THIRD },
+      event: { type: 'challengeOpened', playerId: THEM, targetId: THIRD, color: 'red' },
       count: 1,
       note: 'threatens, at the seat that has to answer',
     },
@@ -414,7 +414,7 @@ describe('what each event is worth in sound', () => {
       { type: 'playerSkipped', playerId: THEM },
       // The card that opened the window is a `cardPlayed` in the same beat, and
       // that already makes the sound. A second one for the threat is noise.
-      { type: 'challengeOpened', playerId: THEM, targetId: THIRD },
+      { type: 'challengeOpened', playerId: THEM, targetId: THIRD, color: 'red' },
       { type: 'challengeDeclined', playerId: THIRD, drawn: 4 },
       { type: 'directionChanged', direction: -1 },
       { type: 'drawPileRecycled', count: 30 },
