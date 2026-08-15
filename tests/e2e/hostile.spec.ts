@@ -105,13 +105,29 @@ async function seat(host: Page, guest: Page): Promise<void> {
   await expectDealt(guest);
 }
 
+/**
+ * Whichever page is *not* on turn.
+ *
+ * These tests are about what a blocked control does when a player leans on it, so
+ * they need a player who has one. The opening card's effect lands on the first
+ * seat before anybody has moved, and at two seats a Skip, a Reverse and a Draw Two
+ * each hand the turn straight over — so the guest opens on about one deal in four,
+ * and the pile these were hammering was sometimes simply open.
+ */
+async function waitingPlayer(host: Page, guest: Page): Promise<Page> {
+  await guest.bringToFront();
+  return (await onTurn(guest)) ? host : guest;
+}
+
 test('hammering a blocked draw pile changes nothing and always explains itself', async ({ context }) => {
   const host = await context.newPage();
   const guest = await context.newPage();
   await seat(host, guest);
+  const waiting = await waitingPlayer(host, guest);
+  await waiting.bringToFront();
 
-  const pile = guest.getByRole('button', { name: /Draw pile, \d+ cards/ });
-  const before = await guest.locator('.hand .card').count();
+  const pile = waiting.getByRole('button', { name: /Draw pile, \d+ cards/ });
+  const before = await waiting.locator('.hand .card').count();
   // `force`, because Playwright's actionability check honours `aria-disabled` and
   // refuses the click — which is itself the answer to a question the plan left
   // open. A finger does not consult the accessibility tree, so a real player can
@@ -119,26 +135,28 @@ test('hammering a blocked draw pile changes nothing and always explains itself',
   for (let i = 0; i < 8; i += 1) {
     await pile.click({ force: true });
   }
-  await expect(guest.locator('.hand .card')).toHaveCount(before);
+  await expect(waiting.locator('.hand .card')).toHaveCount(before);
   await expect(pile).toHaveAttribute('aria-disabled', 'true');
   // The reason is reachable, and the prompt it used to hide is still there.
   const described = await pile.getAttribute('aria-describedby');
   expect(described).not.toBeNull();
-  await expect(guest.locator(`#${described ?? ''}`)).toHaveCount(1);
-  await expect(guest.locator('.game__action .callout')).toHaveCount(2);
+  await expect(waiting.locator(`#${described ?? ''}`)).toHaveCount(1);
+  await expect(waiting.locator('.game__action .callout')).toHaveCount(2);
 });
 
 test('tapping unplayable cards repeatedly never plays one', async ({ context }) => {
   const host = await context.newPage();
   const guest = await context.newPage();
   await seat(host, guest);
+  const waiting = await waitingPlayer(host, guest);
+  await waiting.bringToFront();
 
-  const before = await guest.locator('.hand .card').count();
-  const cards = guest.locator('.hand .card');
+  const before = await waiting.locator('.hand .card').count();
+  const cards = waiting.locator('.hand .card');
   for (let i = 0; i < Math.min(5, before); i += 1) {
     await cards.nth(i).click({ force: true });
   }
-  await expect(guest.locator('.hand .card')).toHaveCount(before);
+  await expect(waiting.locator('.hand .card')).toHaveCount(before);
 });
 
 test('playing fast leaves no residue and the table stays consistent', async ({ context }) => {
