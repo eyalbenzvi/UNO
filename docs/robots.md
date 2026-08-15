@@ -41,13 +41,13 @@ This is structural, not a promise. The room holds every hand, so a policy that r
 `GameState` would be reading its opponents' cards. Instead `botViewFor()` builds a `BotView`
 out of the same projections a remote client is sent:
 
-| In a `BotView`                          | Not in a `BotView`            |
-| --------------------------------------- | ----------------------------- |
-| `PublicGameState` — the whole table     | anybody else's cards          |
-| its own hand                            | the draw pile's order         |
-| which seats can answer for themselves   | who _else_ holds a +3 Breaker |
-| whether an open +3 is waiting on **it** | anything else about that list |
-| which seats to go easy on, and how easy | why, or anything they hold    |
+| In a `BotView`                          | Not in a `BotView`                          |
+| --------------------------------------- | ------------------------------------------- |
+| `PublicGameState` — the whole table     | anybody else's cards                        |
+| its own hand                            | the draw pile's order                       |
+| which seats can answer for themselves   | who _else_ holds a Wild Draw Four challenge |
+| whether an open +3 is waiting on **it** | anything else about that list               |
+| which seats to go easy on, and how easy | why, or anything they hold                  |
 
 The last row is a number per _seat_, decided by the person running the table before a card was
 dealt. It carries no cards and says nothing whatever about what anybody is holding, so all
@@ -58,9 +58,9 @@ serialised view; the same decision comes out however the _other_ hands are rearr
 `view.ts` is the only file in the package that imports a `GameState`.
 
 The last two rows are the one place this is subtler than "only what a client is sent". Who
-holds a +3 Breaker is private to the room, and a client infers whether _it_ may answer from its own
+holds a Wild Draw Four challenge is private to the room, and a client infers whether _it_ may answer from its own
 hand — which is right almost always, and wrong in the state that matters: a seat caught on its
-last card draws four cards mid-window, and a breaker among them is not one the engine is
+last card draws four cards mid-window, and a challenge among them is not one the engine is
 waiting for. So a robot is told the single bit about **its own seat** — am I being waited for —
 rather than left to guess. It is a fact about itself, it says nothing about anybody else's
 cards, and without it the robot would offer a move the table refuses on the one path that
@@ -85,29 +85,29 @@ make themselves.
 **Choosing a card.** A score per playable card, best taken, ties broken from the room's
 seeded stream:
 
-| Card             | Reasoning                                                                |
-| ---------------- | ------------------------------------------------------------------------ |
-| +3               | strong: every other seat draws three unless somebody breaks it           |
-| +2               | strong, more so against a seat that is nearly out                        |
-| Stop             | strong at two players, where it is an extra turn; situational above that |
-| Taki             | worth exactly what the colour behind it is long                          |
-| Super Taki       | the same, in the leading colour, minus a point for spending a wild       |
-| Plus             | good with something to pay it with, otherwise a turn spent going nowhere |
-| number           | the baseline; prefers the colour the hand is strongest in                |
-| Change Direction | mild                                                                     |
-| King             | hoarded — its value is cancelling somebody else's +2 run                 |
-| Change Colour    | hoarded — it is the one card that is always playable                     |
-| +3 Breaker       | never played speculatively: three cards, drawn _before_ the win check    |
+| Card                     | Reasoning                                                                |
+| ------------------------ | ------------------------------------------------------------------------ |
+| +3                       | strong: every other seat draws three unless somebody breaks it           |
+| +2                       | strong, more so against a seat that is nearly out                        |
+| Stop                     | strong at two players, where it is an extra turn; situational above that |
+| Taki                     | worth exactly what the colour behind it is long                          |
+| UNO                      | the same, in the leading colour, minus a point for spending a wild       |
+| Plus                     | good with something to pay it with, otherwise a turn spent going nowhere |
+| number                   | the baseline; prefers the colour the hand is strongest in                |
+| Change Direction         | mild                                                                     |
+| King                     | hoarded — its value is cancelling somebody else's +2 run                 |
+| Wild                     | hoarded — it is the one card that is always playable                     |
+| Wild Draw Four challenge | never played speculatively: three cards, drawn _before_ the win check    |
 
-**Inside a Taki sequence** it spends numbers and further Takis first and keeps the punishing
+**Inside a turn** it spends numbers and further Takis first and keeps the punishing
 card for the close, because only the closing card's effect resolves. A sequence keeps the
 colour it opened in, so there is nothing else to decide: when no card of that colour is left,
 it closes.
 
-**A +2 run** is raised with another +2 if it holds one, cancelled with a King if not, and
+**A +2 run** is raised with another +2 if it holds one, cancelled with a Wild Draw Four if not, and
 otherwise paid in full.
 
-**In stairs** nothing about the policy changes, and that is not an oversight. Emptying the
+**In points** nothing about the policy changes, and that is not an oversight. Emptying the
 hand is worth taking on sight whether it wins the round or takes a step of the staircase, so
 the "play the card that empties the hand" branch is right in both modes; the fresh hand
 arrives as an ordinary state change, which the robot re-reads like any other. The one thing
@@ -161,7 +161,7 @@ All in `network/timing.ts`, all jittered from a per-seat seeded stream.
 | Constant                          | Value      | What it is                                          |
 | --------------------------------- | ---------- | --------------------------------------------------- |
 | `BOT_THINK_MIN_MS` … `MAX`        | 0.7–1.7 s  | before an ordinary move                             |
-| `BOT_SEQUENCE_MIN_MS` … `MAX`     | 0.62–0.9 s | between cards inside a Taki sequence                |
+| `BOT_SEQUENCE_MIN_MS` … `MAX`     | 0.62–0.9 s | between cards inside a turn                         |
 | `BOT_DECLARE_MIN_MS` … `MAX`      | 0–0.1 s    | before declaring its own last card                  |
 | `BOT_SOFT_DECLARE_MIN_MS` … `MAX` | 0.9–2 s    | the same, at a table that is going easy on somebody |
 | `BOT_CATCH_MIN_MS` … `MAX`        | 2.2–4.0 s  | before calling somebody out                         |

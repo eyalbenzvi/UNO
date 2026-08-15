@@ -7,8 +7,8 @@
 
 > **Note.** This document records the review of the pre-rebrand version of this app, when
 > it was called Color Rush and shipped a 110-card deck and an in-app rules page. The rebrand
-> to Super Taki added the +2, King, +3 and +3 Breaker cards, dropped the rules page, and
-> changed Super Taki to take the leading colour instead of choosing one. Findings about the
+> to UNO added the +2, King, +3 and Wild Draw Four challenge cards, dropped the rules page, and
+> changed UNO to take the leading colour instead of choosing one. Findings about the
 > parts that did not change still stand; anything below that mentions the old name, the old
 > deck size or the rules page describes the version that was reviewed, not the current one.
 
@@ -131,8 +131,8 @@ fairness, and whether the documentation matches the code.
 - **verified — Taki semantics**, the most variant-prone area, covered by 20 dedicated tests:
   opening, colour lock, wilds refused, wrong colour refused, draw refused, effects deferred,
   Taki-on-Taki continuing the sequence, and closing with each trailing card type (number, Stop,
-  Plus, Change Direction, Taki, Super Taki) plus the degenerate empty-pile case.
-- **verified — Super Taki** requires a colour, rejects an invalid one, opens a sequence in the
+  Plus, Change Direction, Taki, UNO) plus the degenerate empty-pile case.
+- **verified — UNO** requires a colour, rejects an invalid one, opens a sequence in the
   chosen colour, and behaves identically to Taki from there.
 - **verified — Two-player behaviour** is explicit in code, tests and both language versions of the
   rules: Stop returns the turn, Change Direction does not.

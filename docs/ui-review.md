@@ -153,7 +153,7 @@ the table answers "whose turn, what do I do, what just happened".
 - **fixed — A played card appeared without arriving.** The top of the discard pile is the only
   place the table records what just happened, and it changed silently. The new card now lands,
   with the animation off under `prefers-reduced-motion`, where the log line carries it instead.
-- **fixed — The active colour was nowhere near the card it applies to.** After a Change Colour
+- **fixed — The active colour was nowhere near the card it applies to.** After a Wild
   the top card and the colour in force disagree — exactly when a player needs both facts at
   once. The colour is drawn as a rail around the discard pile, with its name beside it.
 - **fixed — Turn direction was text nobody reads** ("Play order: forwards") and it was

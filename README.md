@@ -1,8 +1,8 @@
-# Super Taki
+# UNO
 
-**A private game of Taki — in the browser, at exactly zero cost.**
+**A private game of UNO — in the browser, at exactly zero cost.**
 
-Super Taki is a mobile-first multiplayer card game for 2–6 players. One person opens a
+UNO is a mobile-first multiplayer card game for 2–6 players. One person opens a
 room and shares it however suits the room they are in — a link, a six-digit code, or the QR
 code on their screen — and everyone else joins from their own phone, tablet or laptop.
 There is no account, no database and no paid service anywhere in the stack: the site is
@@ -16,17 +16,30 @@ play that seat until its owner comes back, and hands it over the moment they do.
 the room and see exactly what a player sees, never anybody's hand. See
 [docs/robots.md](docs/robots.md).
 
-The interface is Hebrew by default (right-to-left), with English one tap away in Settings. The deck is the
-full Super Taki deck — numbers 1 and 3–9, Stop, Plus, +2, Change Direction and Taki in four
-colours, plus Change Colour, Super Taki, King, +3 and the +3 Breaker. There is no plain 2:
-the only 2 in Taki is the +2. "Last card" is declared with a button, and a player who stays
-silent on a single card can be caught by anybody else for four cards — a beat after
-their card lands, so the declaration is a decision rather than a race. A table can be set up
-to play the ordinary game or **stairs** (טאקי מדרגות), where emptying your hand deals you a new
-one a card smaller — eight down to one — and the round goes to whoever finishes all eight
-hands. Rounds won are kept as a running score for as long as the room is open. The exact rules
-the engine implements are in [docs/rules.md](docs/rules.md); the app has no rules page, so read
-that if a card's behaviour is not what you expected.
+The interface is Hebrew by default (right-to-left), with English one tap away in Settings.
+
+The deck is the standard 108: a nought and two each of one to nine in four colours, two each
+of Skip, Reverse and Draw Two, four Wilds and four Wild Draw Fours. Three rules are worth
+knowing before you sit down, because they are the ones digital UNO usually gets wrong.
+
+**Drawing does not end your turn.** You take one card, and if it fits you may play it — that
+card and nothing else — or end the turn yourself.
+
+**A Wild Draw Four may be a bluff.** You are only supposed to play one when you hold no card
+of the colour in play, but nothing stops you, and the next player may call it. If they are
+right you draw the four yourself; if they are wrong they draw six.
+
+**"UNO!" is a button, and the window to catch somebody is short.** A player left on a single
+card they never called can be caught for two cards — but only until the next player begins
+their turn. After that they are safe, which is what makes the call a reflex rather than a
+standing bounty.
+
+A table can play the ordinary game or the official **500-point match**, where the winner of
+each round scores what everybody else was still holding. Either way the score is kept for as
+long as the room is open. The exact rules — including where editions disagree, what this
+build does differently and why, and the house rules it does not implement — are in
+[docs/rules.md](docs/rules.md); the app has no rules page, so read that if a card's behaviour
+is not what you expected.
 
 A table with a much younger player at it can be quietly **evened out**: the person who opened
 the room can mark some of the other players — never all of them, and never themselves — and
@@ -141,11 +154,11 @@ Requirements: Node.js 20+ (CI uses 22) and npm 10+.
 ## Running the tests
 
 ```bash
-npm test                # 797 unit + component tests
+npm test                # 874 unit + component tests
 npm run test:coverage   # same, with coverage thresholds enforced
-npm run test:e2e        # 50 scenarios x 2 viewports (needs a Chromium download once)
+npm run test:e2e        # end-to-end scenarios x 2 viewports (needs a Chromium download once)
 
-cd worker && npm run verify   # 69 room tests, with their own coverage floor
+cd worker && npm run verify   # 101 room tests, with their own coverage floor
 cd worker && npm run smoke    # a whole round over real sockets against wrangler dev
 ```
 
@@ -213,7 +226,7 @@ all work without editing anything.**
 To build locally for a project page:
 
 ```bash
-VITE_BASE_PATH=/super-taki/ npm run build
+VITE_BASE_PATH=/UNO/ npm run build
 ```
 
 Routing uses the URL hash (`#/join?room=...`), which GitHub Pages serves correctly without
@@ -236,7 +249,7 @@ that works. It is the room worker; only the label is historical.
 5. Push to the default branch (or run the `Deploy relay worker` workflow manually). The run
    summary prints the worker's URL.
 6. Set the repository **Variable** `RELAY_URL` to that URL with a `wss://` scheme, e.g.
-   `wss://supertaki-relay.<your-subdomain>.workers.dev`, and re-run the Pages deploy.
+   `wss://uno-room.<your-subdomain>.workers.dev`, and re-run the Pages deploy.
 
 The Pages build injects `RELAY_URL` into the app (`VITE_RELAY_URL`) and into the Content
 Security Policy, so the deployed page can talk to exactly one room server: yours. Locally, no
@@ -349,7 +362,7 @@ no UI imports, and the UI holds no game rules.
 - [docs/architecture.md](docs/architecture.md) — static hosting constraints, server authority, data flow, reconnection, limitations
 - [docs/server-game-plan.md](docs/server-game-plan.md) — why the game moved into the room, and what that deleted
 - [docs/protocol.md](docs/protocol.md) — message envelope, every message type, validation, versioning, examples
-- [docs/rules.md](docs/rules.md) — exact deck, exact rules, +2 runs, the King, the +3 breaker window, game modes and the running score, decisions where editions disagree (bilingual)
+- [docs/rules.md](docs/rules.md) — exact deck, exact rules, the draw turn, the Wild Draw Four challenge, the UNO window, scoring, where editions disagree and what this build does differently (bilingual)
 - [docs/robots.md](docs/robots.md) — robot players: what they know, how they play, when one covers a human seat
 - [docs/assist.md](docs/assist.md) — easements: how a table can lean towards a much younger player without changing a rule or telling anybody
 - [docs/threat-model.md](docs/threat-model.md) — what a malicious client can and cannot do, and what the operator can see
@@ -361,7 +374,7 @@ no UI imports, and the UI holds no game rules.
 ## Disclaimer
 
 This is a **private, unofficial** hobby project. It is **not affiliated with, endorsed by,
-or connected to Shafir Games or any other publisher of Taki.** Taki is their trademark.
+or connected to Mattel, Inc. or any other publisher of UNO.** UNO is their trademark.
 
 Every asset in this repository — the card symbols, the wordmark, the icons and the
 wording — is drawn from scratch in CSS and inline SVG for this project. No artwork, logo,

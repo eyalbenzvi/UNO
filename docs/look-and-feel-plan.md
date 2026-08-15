@@ -104,11 +104,11 @@ Six things that changed the shape of this plan, all verified in the source rathe
    a card stranded in the air. The task is to drive it from state, not to invent it.
 2. **The event vocabulary is far richer than anything consuming it.** `GameEvent` has **23**
    members, already broadcast to every client, carrying exactly the fields motion needs —
-   `drawStacked.total`, `plusThreeBroken.targetId`, `lastCardCaught.caughtById`,
-   `takiClosed.cardsPlayed`. All of it renders as one truncated line in a ticker.
+   `drawStacked.total`, `challengeBroken.targetId`, `lastCardCaught.caughtById`,
+   `challengeResolved.drawn`. All of it renders as one truncated line in a ticker.
 3. **Two surfaces already animate, and must not be rebuilt.** `.discard` cross-fades its colour
    rail over 240 ms (`cards.css:416`) and `.seat` cross-fades border and background over 240 ms
-   (`screens.css:437`). Change Colour is currently the best-animated moment in the app.
+   (`screens.css:437`). Wild is currently the best-animated moment in the app.
    **But `.seat--current` also sets `box-shadow` (`:449`), which is _not_ in that transition
    list — so the turn ring snaps.** Adding one property to `:437` is most of T5.
 4. **The turn banner changes `font-size`** between states (`screens.css:593`, `:605`) with no
@@ -161,7 +161,7 @@ Six things that changed the shape of this plan, all verified in the source rathe
   the optimistic local flight has no `seq`, so the documented key could not dedupe it against
   the beat-driven flight, giving two flights for one card. **Replaced by** a card-keyed
   in-flight registry with a recency window, which T9 needs anyway and which subsumes `origin`.
-- **The planner could not be both pure and do cross-beat compression.** A six-card Taki run is
+- **The planner could not be both pure and do cross-beat compression.** A run of quick turns is
   six accepted commands, so six version bumps, so **six beats** — compressing it is a decision
   about five _other_ beats, which `(beat) => Motion[]` cannot make. And reduced motion read from
   `matchMedia` inside the planner is a DOM read during render, which `react-hooks/purity`
@@ -291,7 +291,7 @@ interface ChoreographOptions {
 ```
 
 No DOM, no refs, no React, **no global reads** — the same shape as `handLayout.ts` and
-`eventText.ts`, so "does a +3 broken by a breaker produce the right two flights" is a vitest
+`eventText.ts`, so "does a +3 broken by a challenge produce the right two flights" is a vitest
 assertion rather than something verified by playing. The scheduler state arrives as data, which
 is what lets the cross-beat rules below stay in a pure function and stay testable.
 
@@ -322,7 +322,7 @@ Interruption rules live here, not in the view. They are **one rule, not two** �
 backlog cap and a run-compression forty lines apart as if they were different situations:
 
 - **Never block, never roll back.** Input is never gated on motion.
-- **One catch-up rule.** A Taki run is six commands, so six beats, so six chances to fall
+- **One catch-up rule.** A brisk exchange is several commands, so several beats, so several chances to fall
   behind. If `beat.seq - options.lastPlayedSeq > 2`, the view is behind: emit only the newest
   beat's motions and drop the intermediate ones. That is what "fly the first and last card of a
   run, skip the middle" means in practice — it is the _same_ rule, expressed over beats rather
@@ -394,7 +394,7 @@ already cross-fade border and background over 240 ms — but `.seat--current` al
 `box-shadow` (`screens.css:449`) and `box-shadow` is _not_ in the transition list at `:437`, so
 the turn ring does snap. The reviewer was half right. Adding one property to an existing
 transition list buys most of what a JS ring bloom would, for zero bytes and with no WAAPI
-dependency, and that is what T5 now does. The Change Colour moment is left alone entirely.
+dependency, and that is what T5 now does. The Wild moment is left alone entirely.
 
 ---
 
@@ -514,7 +514,7 @@ in the plan and it ships first.
   `@media (hover: hover) and (pointer: fine)`. Add a state-driven lift on the same cards,
   staggered 25 ms per slot, transitioned over 260 ms.
 - **Gate on "any playable card", not on `isMyTurn`.** `playableCardIds`
-  (`selectors.ts:65-82`) returns breaker ids when a `plusThree` is open **and it is not my
+  (`selectors.ts:65-82`) returns breaker ids when a `challenge` is open **and it is not my
   turn** — the most time-critical decision in the game, and exactly what the lift is for.
 - **Resolve the transform conflict rather than layering rules.** `button.card:active` sets
   `transform: scale(0.96)` at specificity (0,2,1). A new `.hand--armed .card--playable` rule is
@@ -933,7 +933,7 @@ feeling wrong. It is last for that reason, and everything before it stands witho
 ### T25 — a +3 sent back
 
 - **Files:** `src/features/game/ui/choreograph.ts`
-- **Change:** `plusThreeBroken` names both actor and target. Fly the penalty to the breaker and
+- **Change:** `challengeBroken` names both actor and target. Fly the penalty to the challenge and
   then visibly turn it around to the original player — the clearest reading available of "sent
   back at you", and the one card interaction nobody understands on first sight.
 - **Acceptance:** the reversal is one continuous motion, not two flights that look unrelated.

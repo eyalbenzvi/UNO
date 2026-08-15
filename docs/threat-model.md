@@ -2,7 +2,7 @@
 
 ## What this is, and what it is not
 
-Super Taki is a **private game between people who know each other**, running as a static site
+UNO is a **private game between people who know each other**, running as a static site
 against one small server the repository owner deploys. That context sets the security bar
 honestly:
 

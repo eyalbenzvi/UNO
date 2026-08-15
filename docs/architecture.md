@@ -74,11 +74,11 @@ talk to each other, and there is no player whose disappearance means more than a
 
 Three views of the same data:
 
-| View              | Contains                                                                                | Who holds it     |
-| ----------------- | --------------------------------------------------------------------------------------- | ---------------- |
-| `GameState`       | every hand, the draw pile order, the RNG state                                          | the room only    |
-| `PublicGameState` | card _counts_, the visible discard top, active colour, direction, whose turn, Taki mode | everyone         |
-| `PrivateHandView` | one player's cards                                                                      | that player only |
+| View              | Contains                                                                                                                            | Who holds it     |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `GameState`       | every hand, the draw pile order, the RNG state                                                                                      | the room only    |
+| `PublicGameState` | card _counts_, the visible discard top, active colour, direction, whose turn, whether the seat on turn has drawn, an open challenge | everyone         |
+| `PrivateHandView` | one player's cards                                                                                                                  | that player only |
 
 `toPublicGameState()` is the only function that produces the broadcast payload, and it
 cannot leak a hand because it never reads card identities other than the discard top. A
@@ -320,7 +320,7 @@ Two properties are load-bearing, and both are structural rather than promised:
 - **A robot knows only what a client knows.** `botViewFor()` builds its input out of
   `toPublicGameState()` plus that seat's own hand — the same two projections the room
   broadcasts. It cannot read the draw pile, another hand, or the private list of who holds a
-  +3 Breaker; it infers whether it may answer a +3 from its own cards, exactly as the UI does.
+  Wild Draw Four challenge; it infers whether it may answer a +3 from its own cards, exactly as the UI does.
 - **A robot can express nothing a player cannot.** Its decisions are typed as the wire's
   `GameAction`, so the room-only commands (`skipTurn`, `leaveGame`, `abandonRound`) are
   unreachable from it. A refused robot move buys no privilege either: at most it pays a card
@@ -389,7 +389,7 @@ and a rebuild if it goes unanswered.
 price of the turn: one card from the pile, exactly what a present player pays for a turn they
 play nothing on — or the whole +2 run when they owed one, since that is an obligation somebody
 else created. A pass that cost nothing made a dropped connection the cheapest turn at the
-table, because a hand that cannot grow cannot lose. A breaker window waiting on an absent seat is resolved immediately, because it freezes
+table, because a hand that cannot grow cannot lose. A challenge window waiting on an absent seat is resolved immediately, because it freezes
 every seat and is invisible to any check based on whose turn it is. A seat that leaves for good
 is _marked_, never deleted. Any player can pause the table, and the table can agree to end a
 round with no winner. All of it runs on alarms — and stops entirely when nobody is connected,

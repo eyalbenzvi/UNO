@@ -7,8 +7,8 @@
 
 > **Note.** This document records the review of the pre-rebrand version of this app, when
 > it was called Color Rush and shipped a 110-card deck and an in-app rules page. The rebrand
-> to Super Taki added the +2, King, +3 and +3 Breaker cards, dropped the rules page, and
-> changed Super Taki to take the leading colour instead of choosing one. Findings about the
+> to UNO added the +2, King, +3 and Wild Draw Four challenge cards, dropped the rules page, and
+> changed UNO to take the leading colour instead of choosing one. Findings about the
 > parts that did not change still stand; anything below that mentions the old name, the old
 > deck size or the rules page describes the version that was reviewed, not the current one.
 
@@ -63,20 +63,26 @@ Where coverage is deliberately lower:
 
 ## Test suites
 
-Exact counts per file (from `vitest --reporter=json`):
+Exact counts per area (from `vitest --reporter=json`):
 
 ```
- 121  tests/unit/engine/*         deck, prng, setup, matching, commands, specialCards,
-                                  taki, drawPile, win, views
- 126  tests/unit/network/*        protocol, envelope, roomCode, sessions, clientSession
-  54  tests/unit/state/*          persistence, selectors, storeFlow
-  36  tests/unit/lib/*            sanitize, storage, misc (ids, logger, share)
-  21  tests/unit/ui/*             cardText, eventText
-  14  tests/unit/i18n.test.ts     dictionary parity and interpolation
-  96  tests/component/*           landing, forms, lobby, game, gameOver, table
+ 211  tests/unit/engine/*         deck, prng, setup, matching, commands, openingCard,
+                                  actionCards, drawTurn, wildDrawFour, uno, points,
+                                  drawPile, win, views, absence, assist
+  81  tests/unit/network/*        protocol, envelope, roomCode, sessions, clientSession
+  86  tests/unit/state/*          persistence, selectors, storeFlow, beat, winHold
+  97  tests/unit/lib/*            sanitize, storage, qr, audio, haptics, motion, misc
+ 131  tests/unit/ui/*             cardText, eventText, choreograph, handLayout, anchors
+  69  tests/unit/bot/*            policy, runner, leniency, names
+  19  tests/unit/i18n.test.ts     dictionary parity and interpolation
+ 180  tests/component/*           landing, forms, lobby, game, gameOver, table, flightLayer
  ----
- 510  total
+ 874  total
 ```
+
+Plus **101 room tests** in `worker/test/`, gated separately with their own coverage floor,
+and a smoke script that plays a whole round over raw WebSockets against a real
+`wrangler dev`.
 
 The `table` file and the additions elsewhere came with the interface pass: the hand as a keyboard
 widget, the move-in-flight lock, the single action prompt and its priority order, seat status,
@@ -99,22 +105,55 @@ prompt and the turn banner are always on screen — which is the property the fi
 layout exists to guarantee. Long display names (28 characters) were driven through the same
 sweep.
 
-### Unit — game engine (`tests/unit/engine/`, 121 tests)
+### Unit — game engine (`tests/unit/engine/`, 211 tests)
 
-- **Deck**: 110 cards, unique ids, exact per-colour counts, stable build order, colour/symbol helpers.
-- **Seeded PRNG**: reproducibility, range, permutation, no input mutation, state advance, empty/single input.
-- **Setup**: player-count limits, duplicate ids, 8-card deal for 2–6 players, deck conservation, number card face up, determinism per seed, JSON round trip, continuing a version sequence.
-- **Matching**: colour match, number match, action-symbol match across colours, wilds always legal, no-top-card fallback, chosen colour after a wild, all Taki-mode restrictions.
+- **Deck**: 108 cards, unique ids, one nought and two of every other number per colour, two of
+  each action card per colour, four of each wild, stable build order, colour/symbol helpers,
+  the scoring table, and that the whole deck sums to 1240.
+- **Seeded PRNG**: reproducibility, range, permutation, no input mutation, state advance,
+  empty/single input.
+- **Setup**: player-count limits, duplicate ids, 7-card deal for 2–6 players, deck
+  conservation, determinism per seed, JSON round trip, continuing a version sequence.
+- **The opening card**: never a wild; both wilds buried rather than removed, with the count
+  still 108; each of the four possible openings found by searching seeds, so what is asserted
+  is what a table would see; the dealer-relative Reverse; the turn counter starting at nought
+  in every case; and the two-seat case checked by requiring the Reverse and the Skip to name
+  the same player.
+- **Matching**: colour match, number match, action-symbol match across colours, one action
+  never matching another, both wilds always legal, the active colour outranking the top card
+  after a wild, no-top-card fallback.
 - **Turn order**: forwards, backwards, wrapping, two-seat behaviour, empty-table guard.
-- **Special cards**: Stop (3-player skip, 2-player return, reversed direction), Plus (obligation, forbidden draw, allowed draw with nothing legal, chaining), Change Direction (both directions, 2-player), Colour Change.
-- **Taki**: opening, playable subset, consecutive plays, wrong colour, wild rejected, draw rejected, effects deferred, Taki-on-Taki, closing with each trailing card type, closing with an empty pile.
-- **Super Taki**: colour required, invalid colour, sequence in the chosen colour, single-card sequence.
-- **Draw pile**: recycling keeps the top card, conserves every card id, is deterministic, advances the RNG; exhaustion passes the turn; a Plus obligation lapses when nothing can be drawn.
-- **Win detection**: last card, on a Plus, on a Taki, inside a sequence, on a wild; the game locks afterwards.
-- **Views**: public state exposes counts only, private hand isolation, standings with ties, rule context parity between host and client.
-- **Immutability**: input state is asserted unchanged after every command; the version increments exactly once.
+- **Action cards**: Skip (3-seat skip, 2-seat return, one turn-counter step), Reverse (turn
+  round, acts as a Skip at two seats, counts _seats_ rather than connections), Draw Two
+  (two cards and the turn, no stacking), Wild (repaints, playable while holding a match).
+- **The draw turn**: exactly one card; the turn stays open; only that card playable
+  afterwards; no second draw; no free pass; the empty-pile exception that prevents a
+  deadlock; and the drawn card never reaching the public table.
+- **The Wild Draw Four**: the bluff being legal at all; the verdict judged on the colour that
+  was _leading_ rather than the one just chosen; colour-only matching; a wild in hand never
+  counting; all three outcomes with the seat each leaves the turn on; the turn advancing
+  exactly once however it is answered; the table frozen for everybody else; and a lone Wild
+  Draw Four being necessarily honest, so a challenge against a player going out always costs
+  six.
+- **Calling UNO**: legal from any seat on a single card, once per card, dropped when the hand
+  grows; the catch costing two; and the **window** — opening on the transition to one uncalled
+  card, shutting when the next player draws or plays, and not re-opening on later turns.
+- **Points**: the scoring table, a seat that left still counted, an abandoned round scoring
+  nothing, and the cards a winning Draw Two forced on somebody being included.
+- **Draw pile**: recycling keeps the top card, conserves every card id, is deterministic,
+  advances the RNG; exhaustion leaves the turn passable.
+- **Win detection**: the last card; on a Draw Two, with the victim still drawing; on a Wild
+  Draw Four, only once the challenge resolves; on a Wild, with a colour still named; not
+  depending on having called UNO; the round locking afterwards.
+- **Absence**: a skip costing one card, a seat that already drew charged nothing further, a
+  challenge taken for a seat that is not there, departures in both challenge roles, and the
+  turn counter moving only when the turn does.
+- **Views**: public state exposes counts only, private hand isolation, the challenge verdict
+  never published, standings with ties, rule-context parity between room and client.
+- **Immutability**: input state is asserted unchanged after every command; the version
+  increments exactly once.
 
-### Unit — network (`tests/unit/network/`, 126 tests)
+### Unit — network (`tests/unit/network/`, 81 tests)
 
 - **Schema validation**: every message type accepted; primitives, arrays, `null`, missing envelope fields, unknown types, bad payloads, over-long names, oversized and cyclic messages all rejected with the right code.
 - **Direction**: a host-only message on the host's inbound path is rejected, and vice versa.
@@ -135,7 +174,7 @@ sweep.
 - **Store integration** (19 tests, real sessions over the memory transport): room creation with invite link, no resume token for the host, retry on a taken code, signalling failure surfaced, concurrent create ignored, host controls, join with resume metadata stored, transition to the game screen with a private hand, rejection notices with fresh nonces, closed-room handling, unreachable room, full teardown on leave, preferences persisted and applied, rules navigation, no-session safety.
 - **Selectors** (17 tests): roles, identity, turn logic, legal cards, opponent ordering from every seat, seat-less viewer, health, standings, winner.
 - **Persistence** (17 tests): defaults, round trips, invalid stored values, TTL expiry, future timestamps, six malformed shapes, clearing, exact stored key set, theme/direction application.
-- **i18n** (14 tests): key parity between Hebrew and English, no empty strings, placeholder parity, a message for every rejection code, connection phase, session error and close reason; interpolation; fallback; product name is not "Super Taki".
+- **i18n** (14 tests): key parity between Hebrew and English, no empty strings, placeholder parity, a message for every rejection code, connection phase, session error and close reason; interpolation; fallback; product name is not "UNO".
 - **Event text** (21 tests): every one of the 13 event types in English and Hebrew, no unresolved placeholders, and an assertion that only `cardPlayed` names a card.
 - **Lib**: sanitising (Hebrew and Latin names, whitespace, control characters, bidi overrides, zero-width marks, truncation, unusable input, markup left inert), uniquifying, storage (namespacing, JSON validation, throwing storage, unserialisable values), ids (format, uniqueness, bounded integers, rejection sampling), logger (silent by default, errors always), clipboard and Web Share (async path, legacy fallback, total failure, cancellation).
 
@@ -149,7 +188,7 @@ React Testing Library against the real store, driven through the real `App`.
 - **Lobby**: room code, invite link and a QR code of that link, seat order with host/self markers, player count, per-player health, host-only removal, direct start when all connected, confirmation when unstable, disabled below two players, guest view, leave confirmation with host warning, max-player control.
 - **Invite sharing**: clipboard success and confirmation, failure explained, native share sheet, share button hidden without the API.
 - **Connection notices**: quiet when connected, reconnection notice, honest failure with a retry for retryable errors, no retry for non-retryable, closed-room dialog, silence after a voluntary leave.
-- **Game**: opponent shown face down with a count, colour/direction/turn indicators, legal-card enablement, symbol match, whole hand disabled off-turn, engine parity, play forwarding, draw pile states (on turn, off turn, during Taki), "draw" hint, colour picker for both wild cards with cancel/Escape/focus-trap/focus-restore, Taki banner and Close Taki, sequence-colour restriction, close hidden from non-owners, Plus notice, game log without private information, rejection toast with a colour-aware message, compact rules drawer, leave confirmation, waiting state.
+- **Game**: opponent shown face down with a count, colour/direction/turn indicators, legal-card enablement, symbol match, whole hand disabled off-turn, engine parity, play forwarding, draw pile states (on turn, off turn, already drawn), "draw" hint, colour picker for **both** wild cards with cancel/Escape/focus-trap/focus-restore, the challenge prompt with its two buttons for the seat that must answer and none for anybody else, the hand frozen while a challenge is open, a drawn turn lighting only the drawn card and offering to end the turn, game log without private information, rejection toast, leave confirmation, waiting state.
 - **End of round**: winner named, standings ordered with the local marker, self-congratulation, vote and progress, vote withdrawal, no-persistence statement, return home.
 
 ### End-to-end (`tests/e2e/`, 20 scenarios × 2 viewports = 40)
@@ -159,7 +198,7 @@ mobile (Pixel 5) sizes.
 
 - **Landing** (9): Hebrew RTL default, English switch and back, language persisted across reload, theme switch persisted, connectivity/privacy/disclaimer text, rules page and return, `#/rules` deep link, keyboard-only navigation from the skip link to starting a room, **no horizontal overflow and ≥44 px targets at 320 px wide**.
 - **Multiplayer** (10, two real pages): create and join by code then start, join via invite link with the hash cleared afterwards, **hands stay private in rendered HTML**, play a card and see it on both sides, draw and pass the turn, hand and draw pile disabled off-turn, host removes a player, host leaves and the guest is told the room is closed, third player refused in a two-player room, unreachable room reported honestly with the peer-to-peer explanation.
-- **Full round** (1): two bot-driven players play a complete round — hundreds of host-validated commands including special cards, Taki sequences, wild colour choices and draw-pile recycling — reach a winner, verify exactly one player finished on zero cards, see the "nothing is saved" statement, then both vote and a fresh round is dealt.
+- **Full round** (1): two bot-driven players play a complete round — hundreds of host-validated commands including special cards, turns, wild colour choices and draw-pile recycling — reach a winner, verify exactly one player finished on zero cards, see the "nothing is saved" statement, then both vote and a fresh round is dealt.
 
 **Documented limitation:** the end-to-end suite uses the `BroadcastChannel` transport
 (`?transport=broadcast`), not live WebRTC. Public signalling and NAT traversal are not
@@ -180,7 +219,7 @@ Performed against the production build. WebRTC items require two devices.
 ### Deployment shape
 
 - [x] Built with `VITE_BASE_PATH=/color-rush/` and served from that sub-path: no 4xx for any
-      asset, no page errors, a room created and joined, and both players dealt 8 cards.
+      asset, no page errors, a room created and joined, and both players dealt 7 cards.
       This is the "blank page after deploying" failure mode, checked directly.
 - [x] The generated invite link carries the sub-path (`/color-rush/#/join?room=…`).
 - [x] `dist/` contains `.nojekyll` and `robots.txt` from `public/`, and the workflow adds
@@ -213,11 +252,11 @@ Performed against the production build. WebRTC items require two devices.
 - [x] Stop skips correctly with 3+ players and returns the turn with 2.
 - [x] Plus keeps the turn; the draw pile is disabled while a legal card is held.
 - [x] Change Direction reverses the order visibly.
-- [x] Colour Change and Super Taki open the colour modal; the choice shows in the indicator.
-- [x] Taki sequence: multiple same-colour cards, other colours refused, Close Taki works, the trailing card's effect applies.
+- [x] Colour Change and UNO open the colour modal; the choice shows in the indicator.
+- [x] a drawn turn: only the drawn card is lit, the rest of the hand is refused, ending the turn works.
 - [x] Draw pile recycles when empty; the visible top card is preserved.
 - [x] Winning on the last card ends the round for everyone at once.
-- [x] Play again requires every connected player; a new round deals 8 cards to each.
+- [x] Play again requires every connected player; a new round deals 7 cards to each.
 - [x] Game log matches what happened and never names a card that is not face up.
 
 ### Responsive and device checks

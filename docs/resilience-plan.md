@@ -57,15 +57,15 @@ Where they disagreed, the resolution and its reasoning are recorded below.
 - **Deleting a seat mid-round.** Replaced by marking it `left` (S9), which dissolves four
   separate defects at once — see below.
 - **Host-side `baseVersion` rejection and the `actionStale` message.** `version` increments on
-  every accepted command, including the out-of-turn ones (`declareLastCard`,
-  `catchLastCard`), so a strict check would reject legal moves as a matter of routine.
+  every accepted command, including the out-of-turn ones (`declareUno`,
+  `catchUno`), so a strict check would reject legal moves as a matter of routine.
 
 ### Resolved disagreements
 
 | Question                   | Positions                                                                                                                                                                                                                                          | Resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Bump `PROTOCOL_VERSION`?   | PeerJS eng: no — on a static site the reloading tab fetches the new bundle while others keep the cached old one, so a resilience release makes resuming incompatible for everyone else. Network eng: yes, and spend it.                            | **Both.** `PROTOCOL_VERSION = 4` for what we send, `SUPPORTED_PROTOCOL_VERSIONS = [3, 4]` on receive, every new field optional. Zod strips unknown keys, so a v3 reader already tolerates v4 additions.                                                                                                                                                                                                                                                                                                          |
-| Staleness check on actions | PeerJS eng: drop it, client-side only, add an explicit ack. Game dev: replace with a turn token, checked only for turn-scoped intents. Network eng: make it mandatory.                                                                             | **Turn token** (`{currentPlayerId, turnSeq}`, `turnSeq` bumped only on `turnChanged`), checked only for `playCard`-in-turn / `drawCard` / `closeTaki`; **never** for `declareLastCard`, `catchLastCard`, `passBreak` or a breaker play — those are predicate-based and the engine already answers them correctly against current state. Plus an explicit `actionAccepted {requestId, version}`: an ack can never be inferred from version movement in this rule set.                                             |
+| Staleness check on actions | PeerJS eng: drop it, client-side only, add an explicit ack. Game dev: replace with a turn token, checked only for turn-scoped intents. Network eng: make it mandatory.                                                                             | **Turn token** (`{currentPlayerId, turnSeq}`, `turnSeq` bumped only on `turnChanged`), checked only for `playCard`-in-turn / `drawCard` / `passTurn`; **never** for `declareUno`, `catchUno`, `acceptWildDrawFour` or a challenge play — those are predicate-based and the engine already answers them correctly against current state. Plus an explicit `actionAccepted {requestId, version}`: an ack can never be inferred from version movement in this rule set.                                             |
 | Absent-turn grace          | Network eng: 90 s, because a WiFi→cellular handover is 5–40 s and a returning player must not have lost a turn. Game dev: 8 s when the channel is provably closed — the host already knows, waiting learns nothing — and 0 s after the first skip. | **Synthesis.** The harm of a skip is small _because a skip costs only what the turn itself costs_ (S9 — as written, no cards at all; amended since to one), so a short window is affordable: **12 s** when the channel is closed, **30 s** when merely unstable, **0 s** after a seat's first skip until it reconnects — and suppressed entirely if a `resumeRequest` for that seat arrived in the last 20 s. Observed reconnection attempts are far stronger evidence than silence, and cost nothing to record. |
 | Seat grace                 | v1 said 3 min on the host, with a separate 10 min client deadline.                                                                                                                                                                                 | **One authority.** `seatGraceMs = 5 min` is the host's number, broadcast in the lobby snapshot; the client _derives_ its own deadline as `seatGraceMs − 30 s`. Two constants that must agree eventually will not; one constant plus a subtraction cannot disagree.                                                                                                                                                                                                                                               |
 
@@ -102,11 +102,11 @@ Where they disagreed, the resolution and its reasoning are recorded below.
    was impossible as written.
 
 And four the game reviewer found in v1's own new rules — v1's `skipTurn` was rejected by the
-engine in two of the states it claimed to cover (after a King, and after a Plus while holding a
+engine in two of the states it claimed to cover (after a Wild Draw Four, and after a Plus while holding a
 legal card: `engine.ts:602-609` with `rules.ts:44`), it double-advanced the seat pointer for a
 trailing Stop (`engine.ts:585-590`, `:324-329`), it could not even detect the worst stall in the
 game (an absent seat inside a `+3` window is _not_ the current player, so a turn-based trigger
-never fires), and auto-passing for that seat would have published who holds a breaker — the one
+never fires), and auto-passing for that seat would have published who holds a challenge — the one
 thing `docs/rules.md` promises never to reveal.
 
 ### Found in review of the delivered work, and fixed
@@ -276,13 +276,13 @@ returning player four cards down after a three-minute hold, making the seat-hold
 theatre. The one thing that must not evaporate is an obligation _someone else_ created:
 `pendingDraw` is paid in full, or pulling the plug becomes the cheapest answer to an eight-card
 run. The full rule table is implemented literally from the review, including the
-Taki-close case analysis (the sequence's last card can only be a number, Taki, Super Taki,
+Taki-close case analysis (the sequence's last card can only be a number, Taki, UNO,
 Stop, Change Direction, +2 or Plus — a colourless card cannot end a sequence — and only Plus
 leaves the turn with the absent player).
 
 Seats are **marked `left`, never deleted**. That single decision removes: the dangling
-`takiMode.playerId` that can never be closed and never be drawn out of (a permanent deadlock);
-the `plusThree.awaiting` entry that can never empty, freezing every seat forever; the
+`challenge.playerId` that can never be closed and never be drawn out of (a permanent deadlock);
+the `challenge.awaiting` entry that can never empty, freezing every seat forever; the
 `currentPlayerIndex` rebasing bug when a seat before the current one is removed; the
 `publicGameStateSchema.players.min(2)` violation that would make the final broadcast
 unparseable for every client; and the vanishing of a player from the standings they were
@@ -315,7 +315,7 @@ a fresh join instead of a dead end.
 `requestId` in the action payload, minted once by the store — not the envelope id, which is
 freshly generated on every send and so cannot match a replay. Seat-level dedup keyed on it,
 persisted **into the snapshot**, or a host restore plus a client replay double-applies an
-action; a replayed `catchLastCard` is eight cards. A known `requestId` is answered with
+action; a replayed `catchUno` is seven cards. A known `requestId` is answered with
 `actionAccepted` plus a state re-send, never re-applied. Turn token where it belongs and
 nowhere else. Client dedup session-scoped and never reset, plus the missing version floor on
 `gameEvents`, or a post-reconnect replay duplicates every line in the log.
@@ -335,7 +335,7 @@ A capability interface first, replacing the five `session instanceof HostSession
 `LocalSession` over the engine with no transport. The curtain _clears_ the outgoing hand from
 the DOM rather than covering it. During a `+3` window every seat is polled in order —
 including seats with nothing to answer — because passing the phone only to the awaited seats
-would announce who holds a breaker. Declaration is automatic and the catch is dropped, which is
+would announce who holds a challenge. Declaration is automatic and the catch is dropped, which is
 a rules change and goes in `docs/rules.md`. All absence machinery is hard-disabled.
 
 ### S13 — Voluntary handover

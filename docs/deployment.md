@@ -78,7 +78,7 @@ loads but the JavaScript and CSS 404 — the classic "blank page after deploying
 
 | Where the site is served                                                           | Correct `base` |
 | ---------------------------------------------------------------------------------- | -------------- |
-| `https://user.github.io/super-taki/` (project page)                                | `/super-taki/` |
+| `https://user.github.io/uno/` (project page)                                       | `/uno/`        |
 | `https://user.github.io/` (user or organisation page, repo named `user.github.io`) | `/`            |
 | `https://cards.example.com/` (custom domain)                                       | `/`            |
 
@@ -95,8 +95,8 @@ maps an empty value to `/`.
 Building locally for a project page:
 
 ```bash
-VITE_BASE_PATH=/super-taki/ npm run build
-VITE_BASE_PATH=/super-taki/ npm run preview   # serves at http://localhost:4173/super-taki/
+VITE_BASE_PATH=/uno/ npm run build
+VITE_BASE_PATH=/uno/ npm run preview   # serves at http://localhost:4173/uno/
 ```
 
 Pass the variable to `preview` as well: `vite.config.ts` reads it when the config loads, so
@@ -111,7 +111,7 @@ GitHub Pages cannot rewrite unknown paths to `index.html`, so this app uses **ha
 invite links look like
 
 ```
-https://user.github.io/super-taki/#/join?room=482913
+https://user.github.io/uno/#/join?room=482913
 ```
 
 Everything after `#` never reaches the server, so Pages always serves `index.html` and the app
@@ -153,12 +153,12 @@ on the free plan (no credit card). Deploying it once:
    typechecks, tests, deploys, and prints the worker URL in the run summary.
 6. Add a repository **Variable** (Variables, not Secrets — it is baked into a public
    bundle): `RELAY_URL`, set to the worker URL with a `wss://` scheme, e.g.
-   `wss://supertaki-relay.<your-subdomain>.workers.dev`.
+   `wss://uno-relay.<your-subdomain>.workers.dev`.
 7. Re-run the Pages deploy (push anything, or dispatch it manually). The build injects the
    URL into the app and into the Content Security Policy — no manual CSP edit is needed.
 
 The variable is still called `RELAY_URL`, and the worker is still called
-`supertaki-relay`. Both names are historical — the worker stopped being a relay when the
+`uno-relay`. Both names are historical — the worker stopped being a relay when the
 game moved into it — and both are kept deliberately: renaming them would break the deploy
 workflow, the repository variable and every page already built against them, in exchange
 for a better word.
@@ -179,7 +179,7 @@ joining one still requires that code.
 2. Open developer tools → Network and reload: no 404s for `/assets/...`.
 3. Create a room; a room code and invite link appear.
 4. Open the invite link on a second device and join. Both should show "2 of N players".
-5. Start the game. Each player sees eight cards, and only their own.
+5. Start the game. Each player sees seven cards, and only their own.
 
 For a single-device check, open the invite link in a second tab of the same browser — two
 tabs are two ordinary players. There is no same-device special case any more.

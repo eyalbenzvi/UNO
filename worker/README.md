@@ -1,4 +1,4 @@
-# Super Taki rooms
+# UNO rooms
 
 One Cloudflare Worker, one Durable Object per room code — and the object _is_ the
 game. It holds the only complete `GameState`, deals every hand, validates every move
@@ -35,6 +35,6 @@ npm run smoke    # a whole round over real sockets against wrangler dev
 npm run deploy   # manual deploy (CI does this automatically)
 ```
 
-Deployed for this repository at `wss://supertaki-relay.ebenzvi.workers.dev` — the name
+Deployed for this repository at `wss://uno-relay.ebenzvi.workers.dev` — the name
 is historical, and kept deliberately so the `RELAY_URL` repository variable, the
 deploy workflow and every built page keep pointing at the same place.

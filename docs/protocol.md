@@ -111,7 +111,7 @@ would wake the room, on a cadence, for every player, for as long as the room liv
 | { type: 'startGame' }
 | { type: 'setMaxPlayers'; maxPlayers: number }
 | { type: 'setTableLanguage'; language: 'he' | 'en' }
-| { type: 'setGameMode'; mode: 'classic' | 'stairs' }
+| { type: 'setGameMode'; mode: 'classic' | 'points' }
 | { type: 'kickPlayer'; playerId: string }
 | { type: 'addBot' }
 | { type: 'setStandInEnabled'; enabled: boolean }
@@ -136,32 +136,32 @@ remaining seat, so a table can always be started.
 ```ts
 | { type: 'playCard'; cardId: string; chosenColor?: 'red'|'blue'|'green'|'yellow' }
 | { type: 'drawCard' }
-| { type: 'closeTaki' }
-| { type: 'passBreak' }
-| { type: 'declareLastCard' }
-| { type: 'catchLastCard'; targetId: string }
+| { type: 'passTurn' }
+| { type: 'acceptWildDrawFour' }
+| { type: 'declareUno' }
+| { type: 'catchUno'; targetId: string }
 ```
 
-`chosenColor` is required for Change Colour and forbidden on every other card, including
+`chosenColor` is required for Wild and forbidden on every other card, including
 the other colourless ones; the engine rejects both mistakes (`colorRequired`,
 `colorNotAllowed`).
 
-`playCard` also accepts an optional `declareLastCard: boolean`, honoured only when the play
+`playCard` also accepts an optional `declareUno: boolean`, honoured only when the play
 really does leave exactly one card in hand. Nothing in the current client sends it: the
 declaration opens after the card has landed, alongside the catch it exposes its owner to,
 never before — see rule 8 in `docs/rules.md`. The field stays on the wire because a client
 from an older build still sends it, and dropping it would silently swallow their shout.
 
-`passBreak` declines to answer an open +3. It, and a `playCard` naming a +3 Breaker, are
+`acceptWildDrawFour` declines to answer an open +3. It, and a `playCard` naming a Wild Draw Four challenge, are
 accepted **from a player whose turn it is not** — and only while a +3 is open. Everything
 else from another seat is `notYourTurn`, and everything at all while a +3 is open is
 `awaitingBreak`.
 
-`declareLastCard` and `catchLastCard` are the other out-of-turn actions, and they are
+`declareUno` and `catchUno` are the other out-of-turn actions, and they are
 unconditional on the turn: both are accepted from any seat at any moment, including while a
-+3 has the table frozen. `declareLastCard` requires that the sender holds exactly one card
++3 has the table frozen. `declareUno` requires that the sender holds exactly one card
 (`nothingToDeclare`) and has not already declared it (`alreadyDeclared`), and changes nothing
-but `declaredLastCard`. `catchLastCard` requires that `targetId` is somebody else who is on a
+but `declaredUno`. `catchUno` requires that `targetId` is somebody else who is on a
 single undeclared card (`nothingToCatch`), and makes them draw the penalty. Two further
 conditions on a catch are the room's rather than the engine's, and answer with the same
 code: the target must be **connected**, and their hand must have been down to one card for at
@@ -232,10 +232,10 @@ deal does not restart at 1.
 
 - `publicGameStateSchema` has no field that can hold a hand: players carry `cardCount`, not
   cards. The only `Card` in it is `discardTop`, which is face up on the table.
-- `declaredLastCard` is public on purpose, and leaks nothing: it names players who are
+- `declaredUno` is public on purpose, and leaks nothing: it names players who are
   already visibly on one card, and at a real table the declaration is a shout everybody
   hears.
-- `plusThree` names only the player who played the +3, never the players holding a breaker.
+- `challenge` names only the player who played the +3, never the players holding a challenge.
   Publishing who can answer would leak a card from a hand; each client decides whether to
   offer the choice by looking at the hand it already has.
 - `privateHand` is only ever sent with `connection.send` to one connection, never broadcast.
@@ -248,7 +248,7 @@ Join request (client → room):
 
 ```json
 {
-  "protocolVersion": 6,
+  "protocolVersion": 1,
   "id": "9f2c1a7b4e0d8c33",
   "roomId": "482913",
   "senderPeerId": "abc123def456",
@@ -262,7 +262,7 @@ Join accepted (room → client):
 
 ```json
 {
-  "protocolVersion": 6,
+  "protocolVersion": 1,
   "id": "1b7e4c2a9d5f0e81",
   "roomId": "482913",
   "senderPeerId": "room",
@@ -291,7 +291,7 @@ An action (client → room) — note there is no player id anywhere:
 
 ```json
 {
-  "protocolVersion": 6,
+  "protocolVersion": 1,
   "id": "5c8a2e1d7b3f9046",
   "roomId": "482913",
   "senderPeerId": "abc123def456",
@@ -305,7 +305,7 @@ Public state (room → all) — card counts only:
 
 ```json
 {
-  "protocolVersion": 6,
+  "protocolVersion": 1,
   "id": "aa10bb20cc30dd40",
   "roomId": "482913",
   "senderPeerId": "room",
@@ -320,22 +320,15 @@ Public state (room → all) — card counts only:
         { "id": "pl_4f8fc9480f6e569d", "name": "Dana", "cardCount": 7 }
       ],
       "drawPileCount": 78,
-      "discardTop": { "id": "w-superTaki-0", "kind": "superTaki" },
+      "discardTop": { "id": "w-wild-0", "kind": "wild" },
       "discardCount": 5,
       "activeColor": "green",
       "direction": 1,
       "currentPlayerId": "pl_4f8fc9480f6e569d",
-      "takiMode": {
-        "color": "green",
-        "playerId": "pl_4f8fc9480f6e569d",
-        "cardsPlayed": 1,
-        "openedWithSuperTaki": true
-      },
-      "pendingPlus": false,
-      "pendingDraw": 0,
-      "freePlay": false,
-      "plusThree": null,
-      "declaredLastCard": [],
+      "hasDrawn": false,
+      "challenge": null,
+      "declaredUno": [],
+      "catchableUno": [],
       "winnerId": null
     }
   }
@@ -346,7 +339,7 @@ Private hand (room → one client only):
 
 ```json
 {
-  "protocolVersion": 6,
+  "protocolVersion": 1,
   "id": "bb11cc22dd33ee44",
   "roomId": "482913",
   "senderPeerId": "room",
@@ -358,7 +351,7 @@ Private hand (room → one client only):
       "playerId": "pl_4f8fc9480f6e569d",
       "cards": [
         { "id": "n-green-3-1", "kind": "number", "color": "green", "value": 3 },
-        { "id": "a-stop-green-0", "kind": "stop", "color": "green" }
+        { "id": "a-skip-green-0", "kind": "skip", "color": "green" }
       ]
     }
   }
@@ -369,7 +362,7 @@ Events (room → all):
 
 ```json
 {
-  "protocolVersion": 6,
+  "protocolVersion": 1,
   "id": "cc12dd34ee56ff78",
   "roomId": "482913",
   "senderPeerId": "room",
@@ -381,10 +374,14 @@ Events (room → all):
       {
         "type": "cardPlayed",
         "playerId": "pl_4f8fc9480f6e569d",
-        "card": { "id": "w-superTaki-0", "kind": "superTaki" },
+        "card": { "id": "w-wildDrawFour-0", "kind": "wildDrawFour" },
         "resultingColor": "green"
       },
-      { "type": "takiOpened", "playerId": "pl_4f8fc9480f6e569d", "color": "green", "superTaki": true }
+      {
+        "type": "challengeOpened",
+        "playerId": "pl_4f8fc9480f6e569d",
+        "targetId": "pl_9c2a11b7de40e881"
+      }
     ]
   }
 }
@@ -394,13 +391,13 @@ A rejection (room → one client):
 
 ```json
 {
-  "protocolVersion": 6,
+  "protocolVersion": 1,
   "id": "dd13ee24ff35aa46",
   "roomId": "482913",
   "senderPeerId": "room",
   "timestamp": 1758000042130,
   "type": "actionRejected",
-  "payload": { "code": "wrongTakiColor" }
+  "payload": { "code": "onlyDrawnCardPlayable" }
 }
 ```
 
@@ -413,9 +410,15 @@ secret.
 Produced by the engine and mapped to localised strings by key `reject.<code>`:
 
 `gameFinished`, `unknownPlayer`, `notYourTurn`, `cardNotInHand`, `illegalCard`,
-`colorRequired`, `colorNotAllowed`, `mustPlayAfterPlus`, `mustAnswerDraw`, `awaitingBreak`,
-`noPlusThreeOpen`, `cannotDrawDuringTaki`, `noTakiOpen`, `wildNotAllowedInTaki`,
-`wrongTakiColor`, `notEnoughPlayers`, `tooManyPlayers`, `duplicatePlayerId`.
+`colorRequired`, `colorNotAllowed`, `onlyDrawnCardPlayable`, `alreadyDrew`, `nothingToPass`,
+`awaitingChallenge`, `noChallengeOpen`, `notTheChallenger`, `nothingToDeclare`,
+`alreadyDeclared`, `nothingToCatch`, `notEnoughPlayers`, `tooManyPlayers`,
+`duplicatePlayerId`, `nothingToSkip`, `alreadyLeft`, `tablePaused`.
+
+Every code here is one this engine can actually emit. There are no retired entries: the
+protocol is at version 1, so there is no older client whose vocabulary has to be understood,
+and a code nobody emits would be dead weight both dictionaries would still carry a
+translation for.
 
 A test asserts every code has a Hebrew and an English message, so an unlocalised rejection
 cannot reach a player.
@@ -480,8 +483,8 @@ it — the reasoning is recorded in [server-game-plan.md](server-game-plan.md) �
 
 ### Turn-scoped and out-of-turn intents
 
-`turnToken` is checked for `playCard` in turn, `drawCard` and `closeTaki`. It is deliberately
-**not** checked for `declareLastCard`, `catchLastCard`, `passBreak`, or a breaker played into
+`turnToken` is checked for `playCard` in turn, `drawCard` and `passTurn`. It is deliberately
+**not** checked for `declareUno`, `catchUno`, `acceptWildDrawFour`, or a challenge played into
 an open `+3`: those are legal at any moment, they race each other on purpose, and gating them
 on a turn would hand every tie to whichever player broke the rule.
 
@@ -490,7 +493,7 @@ on a turn would hand every tie to whichever player broke the rule.
 Two additions, both of which change meaning rather than merely adding a field — which is why
 the version moved rather than the fields being made quietly optional.
 
-**The mode.** A round now carries a `mode`: `classic`, or `stairs`, where an empty hand is a
+**The mode.** A round now carries a `mode`: `classic`, or `points`, where an empty hand is a
 step down a staircase rather than a win. Two peers on either side of this disagree about the
 single most important thing at a table — whether the round is over — so a stale tab would
 announce a winner and then watch the game carry on without it. See
@@ -508,8 +511,8 @@ the room and to the seat, so it lives exactly as long as they do.
 | room → client | `lobby.gameMode`                   | How the next round will be won. Every seat is told, not only the one that chose.                           |
 | room → client | `lobby.players[].wins`             | Rounds this seat has won since the room opened.                                                            |
 | room → client | `publicState.mode`                 | How the round _on the table_ is won. Distinct from `lobby.gameMode`, which describes the next deal.        |
-| room → client | `publicState.players[].stairsStep` | Hands that seat has emptied, 0–8. Sent only in a stairs round: in a classic one there is no staircase.     |
-| room → client | `gameEvents(stairsAdvanced)`       | `{playerId, stage, dealt}` — a hand finished, and the size of the one that replaced it.                    |
+| room → client | `publicState.players[].pointsStep` | Hands that seat has emptied, 0–8. Sent only in a points round: in a classic one there is no staircase.     |
+| room → client | `gameEvents(roundScored)`          | `{playerId, stage, dealt}` — a hand finished, and the size of the one that replaced it.                    |
 
 Every one of these is `optional` on the wire, and absent always reads as the game before the
 modes existed: `classic`, no staircase, nobody has won anything. That is what keeps a stored
@@ -533,6 +536,6 @@ or its meaning.
 - Additive, optional fields do **not** need a bump: unknown fields are stripped, and an older
   peer simply ignores them. `wantsSpectator` is an example of a field reserved this way.
 - A **rule** change does need one, and it cannot be softened by accepting the older version
-  as 4 did with 3. Version 5 — the King cancelling a +2 run — is the first of those: two peers
+  as 4 did with 3. Version 5 — the Wild Draw Four cancelling a +2 run — is the first of those: two peers
   on different sides of it would refuse each other's legal moves, so the older one is told to
   reload rather than left to argue.

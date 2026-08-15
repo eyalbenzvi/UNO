@@ -10,7 +10,7 @@ contract), `docs/rules.md` (the rules contract), `docs/resilience-plan.md`
 
 ## 1. Why
 
-Super Taki works today, and the thing that makes it work is also the thing that
+UNO works today, and the thing that makes it work is also the thing that
 makes it fragile: **the room creator's browser tab is the game.** `hostSession.ts`
 holds the only complete `GameState`, validates every move, deals every hand, and
 runs every timer. Everyone else is a client of a phone in somebody's pocket.
@@ -552,8 +552,8 @@ Each step leaves `npm run verify` and `cd worker && npm run verify` green.
 
 Unchanged and non-negotiable:
 
-- Worker name stays `supertaki-relay`, so the deployed URL stays
-  `wss://supertaki-relay.ebenzvi.workers.dev`.
+- Worker name stays `uno-relay`, so the deployed URL stays
+  `wss://uno-relay.ebenzvi.workers.dev`.
 - The Durable Object class stays `RoomDO` and the binding stays `ROOM`, so the
   existing `migrations` tag needs no successor.
 - `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and the `RELAY_URL` repository
