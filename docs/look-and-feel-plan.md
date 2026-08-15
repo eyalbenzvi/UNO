@@ -1,5 +1,12 @@
 # Look and feel — plan of record
 
+> **Records the game this one was built from.** This document was written for SuperTaki, the
+> game UNO was ported from. Its examples name that game's cards and screens — the +3, the
+> breaker, the King, the staircase — none of which exist in this deck. The architecture, the
+> timing rules, the threat model and the UI reasoning carried over unchanged and are still the
+> contract; the cards and the rules examples did not. See [rules.md](rules.md) for the deck and
+> the rules actually in play.
+
 Goal: **the table should be felt, not only read.** Today a move changes a number, a colour and
 a truncated line of text. Every fact is available and none of it arrives as a sensation. This
 plan adds motion, depth and sound to the table without touching a rule, a wire format or the

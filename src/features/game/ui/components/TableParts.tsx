@@ -141,16 +141,16 @@ export function HealthBadge({
 }
 
 /**
- * Progress down the staircase: hands finished, out of the eight there are.
+ * Progress towards the match: points banked so far, out of the 500 that win it.
  *
- * One component for a seat and for the player's own hand, because the two have to
- * be read against each other — "I am on four, she is on six" is the whole state of
- * a stairs round, and two differently-worded versions of the same number would
- * make that comparison work.
+ * One component for a seat and for the player's own score, because the two have to
+ * be read against each other — "I am on 320, she is on 460" is the whole state of
+ * a match, and two differently-worded versions of the same number would make that
+ * comparison work.
  *
- * The icon is decoration; the accessible name spells the fraction out, because
- * "3/8" beside a card count is ambiguous to anybody who cannot see the staircase
- * glyph next to it.
+ * The icon is decoration; the accessible name spells the number out, because a
+ * bare "320" beside a card count is ambiguous to anybody who cannot see the
+ * trophy glyph next to it.
  */
 export function ScoreChip({
   points,
@@ -433,7 +433,7 @@ export interface HandProps {
   readonly disabledReason: string;
   readonly locked?: boolean;
   readonly registry?: AnchorRegistry | undefined;
-  /** Hands emptied so far in a stairs round; `null` in a classic one. */
+  /** Running match total; `null` at a table that is not keeping one. */
   readonly points?: number | null;
 }
 
@@ -754,9 +754,10 @@ export function Hand({
   } as CSSProperties;
 
   /*
-   * "I have something I can play." Not "it is my turn": an open +3 makes a
-   * breaker legal from any seat, out of turn, and that is the most time-critical
-   * decision in the game — precisely the moment the cue is worth most.
+   * "I have something I can play." Not "it is my turn": the two are usually the
+   * same here, but an open Wild Draw Four leaves the target holding a decision
+   * with the turn still elsewhere, and that is the most time-critical moment in
+   * the game — precisely when the cue is worth most.
    */
   const armed = playable.size > 0;
   useHandFlip(listRef, cards, solvedCount);

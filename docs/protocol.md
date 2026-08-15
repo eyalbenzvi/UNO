@@ -152,14 +152,15 @@ declaration opens after the card has landed, alongside the catch it exposes its 
 never before — see rule 8 in `docs/rules.md`. The field stays on the wire because a client
 from an older build still sends it, and dropping it would silently swallow their shout.
 
-`acceptWildDrawFour` declines to answer an open +3. It, and a `playCard` naming a Wild Draw Four challenge, are
-accepted **from a player whose turn it is not** — and only while a +3 is open. Everything
-else from another seat is `notYourTurn`, and everything at all while a +3 is open is
-`awaitingBreak`.
+`acceptWildDrawFour` and `challengeWildDrawFour` are the two answers to an open Wild Draw
+Four: take the four cards, or call the bluff. Both are accepted **from the player the card
+was aimed at**, whose turn it is not — the turn is still with whoever played it. Everything
+else from another seat is `notYourTurn`, and an answer sent by anybody but the target is
+`notTheChallenger`.
 
 `declareUno` and `catchUno` are the other out-of-turn actions, and they are
-unconditional on the turn: both are accepted from any seat at any moment, including while a
-+3 has the table frozen. `declareUno` requires that the sender holds exactly one card
+unconditional on the turn: both are accepted from any seat at any moment, including while an
+open Wild Draw Four has the table waiting. `declareUno` requires that the sender holds exactly one card
 (`nothingToDeclare`) and has not already declared it (`alreadyDeclared`), and changes nothing
 but `declaredUno`. `catchUno` requires that `targetId` is somebody else who is on a
 single undeclared card (`nothingToCatch`), and makes them draw the penalty. Two further
@@ -235,9 +236,9 @@ deal does not restart at 1.
 - `declaredUno` is public on purpose, and leaks nothing: it names players who are
   already visibly on one card, and at a real table the declaration is a shout everybody
   hears.
-- `challenge` names only the player who played the +3, never the players holding a challenge.
-  Publishing who can answer would leak a card from a hand; each client decides whether to
-  offer the choice by looking at the hand it already has.
+- `challenge` names who played the Wild Draw Four and who must answer it, and nothing about
+  either hand. Whether the challenge would succeed is not published — that is a fact about
+  the player's hand, and the room settles it only once somebody has actually challenged.
 - `privateHand` is only ever sent with `connection.send` to one connection, never broadcast.
 - A client additionally checks `hand.playerId === myPlayerId` and ignores a hand that is not
   its own, so even a buggy room cannot make a client render someone else's cards.
@@ -484,38 +485,38 @@ it — the reasoning is recorded in [server-game-plan.md](server-game-plan.md) �
 ### Turn-scoped and out-of-turn intents
 
 `turnToken` is checked for `playCard` in turn, `drawCard` and `passTurn`. It is deliberately
-**not** checked for `declareUno`, `catchUno`, `acceptWildDrawFour`, or a challenge played into
-an open `+3`: those are legal at any moment, they race each other on purpose, and gating them
-on a turn would hand every tie to whichever player broke the rule.
+**not** checked for `declareUno`, `catchUno`, `acceptWildDrawFour`, or `challengeWildDrawFour`:
+those are legal at any moment, they race each other on purpose, and gating them on a turn
+would hand every tie to whichever player broke the rule.
 
 ## Version 7: game modes, and a score that outlives a round
 
 Two additions, both of which change meaning rather than merely adding a field — which is why
 the version moved rather than the fields being made quietly optional.
 
-**The mode.** A round now carries a `mode`: `classic`, or `points`, where an empty hand is a
-step down a staircase rather than a win. Two peers on either side of this disagree about the
-single most important thing at a table — whether the round is over — so a stale tab would
-announce a winner and then watch the game carry on without it. See
-[rules.md](rules.md#game-modes).
+**The mode.** A round now carries a `mode`: `classic`, or `points`, where emptying your hand
+scores the cards still in everybody else's and the match runs on to 500. Two peers on either
+side of this disagree about the single most important thing at a table — whether the _match_
+is over — so a stale tab would announce a winner and then watch the game carry on without it.
+See [rules.md](rules.md#game-modes).
 
 **The score.** A seat carries `wins`: rounds it has won since the room opened. It belongs to
 the room and to the seat, so it lives exactly as long as they do.
 
 ### Added
 
-| Direction     | What                               | Purpose                                                                                                    |
-| ------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| client → room | `joinRequest.create.gameMode`      | The mode chosen on the create-a-table screen. Absent means `classic`.                                      |
-| client → room | `roomCommand(setGameMode)`         | Changes the mode for the next deal. Refused once cards are out; a round keeps the mode it was dealt under. |
-| room → client | `lobby.gameMode`                   | How the next round will be won. Every seat is told, not only the one that chose.                           |
-| room → client | `lobby.players[].wins`             | Rounds this seat has won since the room opened.                                                            |
-| room → client | `publicState.mode`                 | How the round _on the table_ is won. Distinct from `lobby.gameMode`, which describes the next deal.        |
-| room → client | `publicState.players[].pointsStep` | Hands that seat has emptied, 0–8. Sent only in a points round: in a classic one there is no staircase.     |
-| room → client | `gameEvents(roundScored)`          | `{playerId, stage, dealt}` — a hand finished, and the size of the one that replaced it.                    |
+| Direction     | What                           | Purpose                                                                                                    |
+| ------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| client → room | `joinRequest.create.gameMode`  | The mode chosen on the create-a-table screen. Absent means `classic`.                                      |
+| client → room | `roomCommand(setGameMode)`     | Changes the mode for the next deal. Refused once cards are out; a round keeps the mode it was dealt under. |
+| room → client | `lobby.gameMode`               | How the next round will be won. Every seat is told, not only the one that chose.                           |
+| room → client | `lobby.players[].wins`         | Rounds this seat has won since the room opened.                                                            |
+| room → client | `publicState.mode`             | How the round _on the table_ is won. Distinct from `lobby.gameMode`, which describes the next deal.        |
+| room → client | `publicState.players[].points` | Points that seat has banked. Sent only in a points round: a classic one keeps no score.                    |
+| room → client | `gameEvents(roundScored)`      | `{playerId, points}` — a round was won, and what the cards left in the other hands were worth.             |
 
 Every one of these is `optional` on the wire, and absent always reads as the game before the
-modes existed: `classic`, no staircase, nobody has won anything. That is what keeps a stored
+modes existed: `classic`, no score, nobody has won anything. That is what keeps a stored
 round written by an older deployment readable — see the note on `emptySince` in
 `worker/src/storage.ts`, which is the same rule applied to durable state.
 

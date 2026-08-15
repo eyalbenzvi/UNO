@@ -275,7 +275,7 @@ export const BOT_SOFT_DECLARE_MAX_MS = 2_000;
 export const BOT_CATCH_MIN_MS = 2_200;
 export const BOT_CATCH_MAX_MS = 4_000;
 
-/** Before a robot answers an open +3, which freezes every other seat. */
+/** Before a robot answers an open Wild Draw Four aimed at it. */
 export const BOT_ANSWER_MIN_MS = 500;
 export const BOT_ANSWER_MAX_MS = 1_200;
 

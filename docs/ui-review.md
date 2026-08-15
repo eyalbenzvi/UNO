@@ -1,5 +1,12 @@
 # UI/UX polish pass
 
+> **Records the game this one was built from.** This document was written for SuperTaki, the
+> game UNO was ported from. Its examples name that game's cards and screens — the +3, the
+> breaker, the King, the staircase — none of which exist in this deck. The architecture, the
+> timing rules, the threat model and the UI reasoning carried over unchanged and are still the
+> contract; the cards and the rules examples did not. See [rules.md](rules.md) for the deck and
+> the rules actually in play.
+
 A second review of the finished product, this time only from the outside: what a player sees,
 taps, waits for and misunderstands. Ten perspectives were applied to the running app rather
 than to the code — the whole journey was driven on two simulated phones at six viewport sizes,

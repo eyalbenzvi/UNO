@@ -41,13 +41,12 @@ This is structural, not a promise. The room holds every hand, so a policy that r
 `GameState` would be reading its opponents' cards. Instead `botViewFor()` builds a `BotView`
 out of the same projections a remote client is sent:
 
-| In a `BotView`                          | Not in a `BotView`                          |
-| --------------------------------------- | ------------------------------------------- |
-| `PublicGameState` — the whole table     | anybody else's cards                        |
-| its own hand                            | the draw pile's order                       |
-| which seats can answer for themselves   | who _else_ holds a Wild Draw Four challenge |
-| whether an open +3 is waiting on **it** | anything else about that list               |
-| which seats to go easy on, and how easy | why, or anything they hold                  |
+| In a `BotView`                           | Not in a `BotView`                   |
+| ---------------------------------------- | ------------------------------------ |
+| `PublicGameState` — the whole table      | anybody else's cards                 |
+| its own hand                             | the draw pile's order                |
+| whether a challenge is open, and on whom | whether that challenge would succeed |
+| which seats to go easy on, and how easy  | why, or anything they hold           |
 
 The last row is a number per _seat_, decided by the person running the table before a card was
 dealt. It carries no cards and says nothing whatever about what anybody is holding, so all
@@ -57,18 +56,12 @@ Three tests hold the line: no card id from another hand or from the draw pile ap
 serialised view; the same decision comes out however the _other_ hands are rearranged; and
 `view.ts` is the only file in the package that imports a `GameState`.
 
-The last two rows are the one place this is subtler than "only what a client is sent". Who
-holds a Wild Draw Four challenge is private to the room, and a client infers whether _it_ may answer from its own
-hand — which is right almost always, and wrong in the state that matters: a seat caught on its
-last card draws four cards mid-window, and a challenge among them is not one the engine is
-waiting for. So a robot is told the single bit about **its own seat** — am I being waited for —
-rather than left to guess. It is a fact about itself, it says nothing about anybody else's
-cards, and without it the robot would offer a move the table refuses on the one path that
-unfreezes everybody.
-
-(The human UI still guesses, and still lights up that card. It is a dead tap in a rare state,
-it predates robots, and closing it properly means publishing the same self-referential bit per
-recipient in the public state — worth doing, and not part of this.)
+The first row is the one place this is subtler than "only what a client is sent". An open
+challenge names who played the Wild Draw Four and who has to answer it, and both are public —
+a person at the table can see exactly that much. What is _not_ published is whether the play
+was a bluff: that is a fact about the player's hand, the room settles it only once somebody
+has actually challenged, and a robot deciding whether to challenge is therefore guessing on
+the same evidence a person guesses on.
 
 ## How it plays
 
@@ -76,44 +69,44 @@ Legality is never re-implemented: every candidate goes through the same `isCardP
 table's own UI highlights with, so a robot cannot drift from the rules or propose a move the
 room would refuse.
 
-**Priority.** Answer an open +3 → play a card that ends the round → declare a last card →
-take the turn → call somebody out. The order is deliberate: a +3 freezes every seat; the
-declaration is not what wins, so pausing to shout before a winning card would only hand the
-table a window to catch you; and calling somebody out is the one move a human would rather
-make themselves.
+**Priority.** Answer a challenge aimed at it → play a card that ends the round → declare a
+last card → take the turn → call somebody out. The order is deliberate: an open Wild Draw Four
+freezes every seat and only its target can unfreeze it; the declaration is not what wins, so
+pausing to shout before a winning card would only hand the table a window to catch you; and
+calling somebody out is the one move a human would rather make themselves.
 
 **Choosing a card.** A score per playable card, best taken, ties broken from the room's
 seeded stream:
 
-| Card                     | Reasoning                                                                |
-| ------------------------ | ------------------------------------------------------------------------ |
-| +3                       | strong: every other seat draws three unless somebody breaks it           |
-| +2                       | strong, more so against a seat that is nearly out                        |
-| Stop                     | strong at two players, where it is an extra turn; situational above that |
-| Taki                     | worth exactly what the colour behind it is long                          |
-| UNO                      | the same, in the leading colour, minus a point for spending a wild       |
-| Plus                     | good with something to pay it with, otherwise a turn spent going nowhere |
-| number                   | the baseline; prefers the colour the hand is strongest in                |
-| Change Direction         | mild                                                                     |
-| King                     | hoarded — its value is cancelling somebody else's +2 run                 |
-| Wild                     | hoarded — it is the one card that is always playable                     |
-| Wild Draw Four challenge | never played speculatively: three cards, drawn _before_ the win check    |
+| Card           | Reasoning                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| Wild Draw Four | the heaviest card in the deck; spent freely on a seat that is nearly out, kept otherwise |
+| Draw Two       | strong, more so against a seat that is nearly out                                        |
+| Skip           | strong at two players, where it is an extra turn; situational above that                 |
+| Reverse        | the same card as a Skip at two players; worth little above that                          |
+| number         | the baseline; prefers the colour the hand is strongest in                                |
+| Wild           | hoarded — it is the one card that is always playable and never a bluff                   |
 
-**Inside a turn** it spends numbers and further Takis first and keeps the punishing
-card for the close, because only the closing card's effect resolves. A sequence keeps the
-colour it opened in, so there is nothing else to decide: when no card of that colour is left,
-it closes.
+**Naming a colour.** Both wilds demand one, and the robot names the colour the _rest_ of its
+hand is strongest in — the card it is about to play cannot help it next turn. A hand of
+nothing but wilds falls back to the colour already in play, because the engine refuses a wild
+with no colour named and a winning card must never be refused.
 
-**A +2 run** is raised with another +2 if it holds one, cancelled with a Wild Draw Four if not, and
-otherwise paid in full.
+**After a draw** the turn is not over — that is UNO's rule and this game's — so the robot
+re-decides on the state the draw produced: the drawn card if it is playable, and otherwise the
+button that ends the turn. Nothing else in the hand is considered, because nothing else in the
+hand is legal any more.
+
+**A challenge** is answered on what a person can see: how many cards the player who laid the
+Wild Draw Four is holding. Many cards means they were likelier to have held the colour, so a
+bluff is likelier and calling it pays; a player down to their last card or two had few chances
+to hold it, and being wrong costs six rather than four. It never peeks.
 
 **In points** nothing about the policy changes, and that is not an oversight. Emptying the
-hand is worth taking on sight whether it wins the round or takes a step of the staircase, so
-the "play the card that empties the hand" branch is right in both modes; the fresh hand
-arrives as an ordinary state change, which the robot re-reads like any other. The one thing
-worth stating is that the step down to a final single card puts the robot on a declarable last
-card, and it declares it at the speed of a tap like any other — see below. `worker/test`
-plays a whole staircase out against one.
+hand is worth taking on sight whether it wins the round or the match, so the "play the card
+that empties the hand" branch is right in both modes; the next round arrives as an ordinary
+state change, which the robot re-reads like any other. `worker/test` plays a whole match out
+against one.
 
 ## Deliberately not an oracle
 
@@ -129,8 +122,8 @@ plays a whole staircase out against one.
   first.
 - It never calls out somebody who is not there — they cannot shout, so that would be farming
   rather than catching. A seat a robot is _playing_ is fair game: the robot can shout.
-- It never calls out a seat the table has been asked to go easy on, and never aims a +2, a +3
-  or a Stop at one. See **Going easy** below.
+- It never calls out a seat the table has been asked to go easy on, and never aims a Draw Two,
+  a Wild Draw Four or a Skip at one. See **Going easy** below.
 
 ## Going easy
 
@@ -138,12 +131,13 @@ A table can ask its robots to be gentle with particular seats — see
 [assist.md](assist.md), which is where the whole feature is explained and where the reasons
 live. Four things change, and none of them is a rule:
 
-| What              | Ordinary table                         | A seat the table is leaning towards                              |
-| ----------------- | -------------------------------------- | ---------------------------------------------------------------- |
-| Calling them out  | anybody silent on one card             | never that seat; the humans may still call it                    |
-| +2 / +3 / Stop    | worth _more_ against a seat nearly out | ranked below every ordinary card in the hand                     |
-| Choosing a card   | always the best-scoring                | the second-best 25–50% of the time, at the top two dial settings |
-| Its own last card | 0–100 ms, effectively uncatchable      | 0.9–2 s, which a child can actually beat                         |
+| What                | Ordinary table                         | A seat the table is leaning towards                              |
+| ------------------- | -------------------------------------- | ---------------------------------------------------------------- |
+| Calling them out    | anybody silent on one card             | never that seat; the humans may still call it                    |
+| Challenging them    | on the evidence, like anybody else     | never                                                            |
+| The punishing cards | worth _more_ against a seat nearly out | ranked below every ordinary card in the hand                     |
+| Choosing a card     | always the best-scoring                | the second-best 25–50% of the time, at the top two dial settings |
+| Its own last card   | 0–100 ms, effectively uncatchable      | 0.9–2 s, which a child can actually beat                         |
 
 The last one gives back something a robot had taken. `BOT_DECLARE_*` is short on purpose — a
 robot that paused was caught every round by whoever happened to be looking, so the rule stopped
@@ -165,7 +159,7 @@ All in `network/timing.ts`, all jittered from a per-seat seeded stream.
 | `BOT_DECLARE_MIN_MS` … `MAX`      | 0–0.1 s    | before declaring its own last card                  |
 | `BOT_SOFT_DECLARE_MIN_MS` … `MAX` | 0.9–2 s    | the same, at a table that is going easy on somebody |
 | `BOT_CATCH_MIN_MS` … `MAX`        | 2.2–4.0 s  | before calling somebody out                         |
-| `BOT_ANSWER_MIN_MS` … `MAX`       | 0.5–1.2 s  | before answering an open +3                         |
+| `BOT_ANSWER_MIN_MS` … `MAX`       | 0.5–1.2 s  | before answering a challenge aimed at it            |
 | `BOT_STALL_MS`                    | 15 s       | before the room passes a robot's own seat           |
 | `STAND_IN_ABSENT_MS`              | 45 s       | absence before a robot may play a human's seat      |
 | `STAND_IN_IDLE_MS`                | 90 s       | silence, while present, before the same             |
@@ -251,10 +245,11 @@ anybody. Their agreement is also never _published_ — the count on screen is a 
 so the one player still there is told the table is waiting for them rather than that everybody
 is ready.
 
-An open +3 has its own deadline for the same reason. While one is open the seat on turn is the
-player who _played_ it, so a seat that answers every heartbeat and taps nothing would freeze
-the whole table with nothing on any screen to explain it. Past `STAND_IN_IDLE_MS` a robot takes
-that seat and answers — or, if the table has robots switched off, the room declines for it.
+An open Wild Draw Four has its own deadline for the same reason. While one is open the seat on
+turn is the player who _played_ it, so the target answering every heartbeat and tapping nothing
+would freeze the whole table with nothing on any screen to explain it. Past `STAND_IN_IDLE_MS`
+a robot takes that seat and answers — or, if the table has robots switched off, the room takes
+the cards for it, which is the answer that costs the absent seat least.
 
 ## What a robot does not need
 

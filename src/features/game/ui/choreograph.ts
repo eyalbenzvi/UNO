@@ -85,7 +85,7 @@ export const REDUCED_MS = 150;
 /**
  * How far behind the view may fall before it stops telling the whole story.
  *
- * A Taki run is one accepted command per card, so six cards is six beats and six
+ * A brisk exchange is one accepted command per card, so six cards is six beats and six
  * chances to fall behind. Past this the plan is cut to the single motion that
  * keeps the table honest, which is what "fly the first and last card of a run and
  * skip the middle" amounts to in practice.
@@ -320,11 +320,6 @@ function motionsFor(event: GameEvent, seq: number, options: ChoreographOptions):
       ];
 
     /*
-     * A step of the staircase: the same shape as a win, quieter, because there are
-     * seven of them before the one that ends the round.
-     *
-     * No flights for the cards that arrive. The engine folds the deal into this
-    /*
      * Deliberately silent.
      *
      * `colorChosen` repaints the table, and the colour rail
@@ -364,8 +359,8 @@ function reduce(motion: Motion): Motion {
  * Turns one accepted command into the motions that describe it.
  *
  * Pure: no DOM, no React, no global read, no clock. Every decision about what
- * animates lives here, which is what makes "does a +3 answered by a breaker
- * produce a reversal" an assertion rather than something checked by playing.
+ * animates lives here, which is what makes "does a Wild Draw Four answered by a
+ * challenge produce a reversal" an assertion rather than something checked by playing.
  */
 export function choreograph(beat: Beat, options: ChoreographOptions): readonly Motion[] {
   const planned = beat.events.flatMap((event) => motionsFor(event, beat.seq, options));

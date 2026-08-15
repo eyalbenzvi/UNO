@@ -84,8 +84,8 @@ export function CreateRoomScreen(): ReactNode {
          * How the round is won, decided before the table exists rather than
          * mid-game: it changes what running out of cards means, so it is not a thing
          * to discover halfway through a hand. The hint under it says what the choice
-         * actually does, because "stairs" means nothing to somebody who has not
-         * played it.
+         * actually does, because "points" alone does not tell you that the round you
+         * just won is one of several.
          */}
         <div className="field">
           <span className="field__label">{t('mode.label')}</span>

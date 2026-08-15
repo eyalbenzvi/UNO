@@ -320,7 +320,8 @@ Two properties are load-bearing, and both are structural rather than promised:
 - **A robot knows only what a client knows.** `botViewFor()` builds its input out of
   `toPublicGameState()` plus that seat's own hand — the same two projections the room
   broadcasts. It cannot read the draw pile, another hand, or the private list of who holds a
-  Wild Draw Four challenge; it infers whether it may answer a +3 from its own cards, exactly as the UI does.
+  challenge open against it; it infers whether it may challenge from its own cards, exactly as
+  the UI does.
 - **A robot can express nothing a player cannot.** Its decisions are typed as the wire's
   `GameAction`, so the room-only commands (`skipTurn`, `leaveGame`, `abandonRound`) are
   unreachable from it. A refused robot move buys no privilege either: at most it pays a card

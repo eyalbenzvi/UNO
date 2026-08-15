@@ -66,8 +66,8 @@ Tested: a scripted client sends room-only message types and they are rejected as
 
 **Mitigation.** Every command goes through the pure engine, which validates against the
 current state and returns a structured rejection instead of mutating anything:
-not your turn, card not in hand, illegal card, colour required, must play after Plus, cannot
-draw during Taki, wrong Taki colour, and so on. The rejection is sent back only to the player
+not your turn, card not in hand, illegal card, colour required, already drew this turn,
+nothing to pass, not the player a challenge is aimed at, and so on. The rejection is sent back only to the player
 who asked, and the state is untouched.
 
 Tested: a client asks to play a card that is in _another player's_ hand — rejected with

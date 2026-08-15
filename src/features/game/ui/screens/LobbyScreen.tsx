@@ -383,7 +383,7 @@ export function LobbyScreen(): ReactNode {
             {/*
              * The same choice the create screen offers, still open until the deal.
              * It is here rather than only there because a table that has just filled
-             * up is exactly when somebody says "let's play stairs this time", and the
+             * up is exactly when somebody says "let's play to 500 this time", and the
              * alternative was closing the room and opening another one.
              */}
             <span className="field__label">{t('mode.label')}</span>

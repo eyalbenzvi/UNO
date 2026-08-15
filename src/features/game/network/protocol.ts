@@ -479,7 +479,7 @@ const requestIdSchema = z.string().min(1).max(64);
  *
  * Checked only for the moves that belong to a turn. It deliberately is *not*
  * checked for declaring last card, catching somebody who did not, or answering a
- * +3 — those are legal at any moment by design, they race each other on purpose,
+ * Wild Draw Four — those are legal at any moment by design, they race each other on purpose,
  * and gating them on a turn would hand every tie to whoever broke the rule.
  */
 const turnTokenSchema = z.object({

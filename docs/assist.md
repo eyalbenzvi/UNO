@@ -42,14 +42,14 @@ of it and every function in it obeys three properties, all of which are tested:
 
 ## The six methods
 
-| #   | Method               | Where                                 | What it does                                                                                                                                |
-| --- | -------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **The deal**         | `createGame`, via `assignHands`       | Hands are dealt exactly as always, then _assigned_: marked seats take the strongest. A permutation, nothing more.                           |
-| 2   | **The draw**         | `drawCards`, via `chooseDrawIndex`    | A marked seat takes the best of the top 2–5 cards instead of the top one. Reaches penalty draws too.                                        |
-| 3   | **The recycle**      | `recycleDrawPile`, `frontLoadForDraw` | When a marked seat's draw empties the pile, the reshuffle puts its best few cards near the top.                                             |
-| 4   | **The robots**       | `bot/policy.ts`, `bot/runner.ts`      | Won't call a marked seat out, won't aim +2/+3/Stop at one, sometimes plays second-best, and leaves a catchable window on its own last card. |
-| 5   | **The opening**      | `createGame`, `biasedStartIndex`      | The opening card prefers the marked hand's colour; odd rounds open on a marked seat.                                                        |
-| 6   | **The catch window** | `gameRoom.withinLastCardGrace`        | A marked seat keeps its "last card!" head start for a second or two longer, and waits for nothing when catching.                            |
+| #   | Method               | Where                                 | What it does                                                                                                                                                            |
+| --- | -------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **The deal**         | `createGame`, via `assignHands`       | Hands are dealt exactly as always, then _assigned_: marked seats take the strongest. A permutation, nothing more.                                                       |
+| 2   | **The draw**         | `drawCards`, via `chooseDrawIndex`    | A marked seat takes the best of the top 2–5 cards instead of the top one. Reaches penalty draws too.                                                                    |
+| 3   | **The recycle**      | `recycleDrawPile`, `frontLoadForDraw` | When a marked seat's draw empties the pile, the reshuffle puts its best few cards near the top.                                                                         |
+| 4   | **The robots**       | `bot/policy.ts`, `bot/runner.ts`      | Won't call a marked seat out, won't aim a Draw Two, a Wild Draw Four or a Skip at one, sometimes plays second-best, and leaves a catchable window on its own last card. |
+| 5   | **The opening**      | `createGame`, `biasedStartIndex`      | The opening card prefers the marked hand's colour; odd rounds open on a marked seat.                                                                                    |
+| 6   | **The catch window** | `gameRoom.withinLastCardGrace`        | A marked seat keeps its "last card!" head start for a second or two longer, and waits for nothing when catching.                                                        |
 
 Method 1 is the largest single effect and the least detectable — it is literally a deal that a
 differently-seeded evening would have produced by itself. Method 2 carries the most weight

@@ -119,7 +119,7 @@ export interface GameRoomOptions {
    * Robot pacing override.
    *
    * A test that had to wait out a human-shaped thinking pause for every move of a
-   * six-card Taki sequence would be minutes long. With this it is instant.
+   * full round would be minutes long. With this it is instant.
    *
    * Worth knowing when reading a test against a fixed seed: the room's own pacing
    * *draws* its jitter from the seat's stream and this does not, so the same deal
@@ -2291,7 +2291,14 @@ export class GameRoom {
        */
       if (seat !== undefined && !seat.left) {
         if (this.robotControls(seat)) {
-          this.book('botStall', (record.waitingSince ?? now) + BOT_STALL_MS);
+          /*
+           * From the same clock `passStalledRobot` reads, which is the later of the
+           * two. A robot that took this seat *after* the window opened has a
+           * `standInSince` newer than `waitingSince`, so booking from `waitingSince`
+           * alone lands in the past — and a deadline in the past is floored to a
+           * second out, fires, finds nothing due, and re-books itself for ever.
+           */
+          this.book('botStall', Math.max(record.waitingSince ?? now, seat.standInSince ?? 0) + BOT_STALL_MS);
         } else if (!this.present(seat)) {
           this.book('absentTurn', now);
         } else {
@@ -2374,7 +2381,7 @@ export class GameRoom {
    * the first version and was wrong: a seat that has been skipped once is skipped
    * again the instant its turn arrives, so the only moment the check could fire was
    * the one moment it was always too early for. A seat is also more than its turn — a
-   * +3 to answer, a last card to declare — and a robot that only woke on turn would
+   * challenge to answer, a last card to declare — and a robot that only woke on turn would
    * sit through all of it.
    */
   private scheduleStandIn(record: RoomRecord): void {

@@ -97,9 +97,9 @@ const KIND_RANK: Readonly<Record<BotMoveKind, number>> = {
 /**
  * Where a duty sits in the queue.
  *
- * A declaration with no pause at all goes first, ahead even of a +3 answer: there is
+ * A declaration with no pause at all goes first, ahead even of a challenge answer: there is
  * nothing to wait for, and every moment it waits is a moment that seat can be called
- * out for four cards it never risked. That is always true of a seat a robot is
+ * out for two cards it never risked. That is always true of a seat a robot is
  * merely covering, and true of its own whenever the jitter lands on nought.
  * Everything else follows the ordinary order.
  */
@@ -193,7 +193,7 @@ export class BotRunner {
    * The pause is over. Decide again.
    *
    * Re-deciding rather than replaying is the point: a human may have caught
-   * somebody, answered a +3 or come back to their seat while the robot was
+   * somebody, answered a Wild Draw Four or come back to their seat while the robot was
    * "thinking", and a move computed against the older table could be illegal, or
    * legal and wrong.
    *

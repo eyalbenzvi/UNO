@@ -1,5 +1,12 @@
 # Moving the game onto the server
 
+> **Records the game this one was built from.** This document was written for SuperTaki, the
+> game UNO was ported from. Its examples name that game's cards and screens — the +3, the
+> breaker, the King, the staircase — none of which exist in this deck. The architecture, the
+> timing rules, the threat model and the UI reasoning carried over unchanged and are still the
+> contract; the cards and the rules examples did not. See [rules.md](rules.md) for the deck and
+> the rules actually in play.
+
 Status: plan, written before the code. The companion documents are
 `docs/architecture.md` (what the system is), `docs/protocol.md` (the wire
 contract), `docs/rules.md` (the rules contract), `docs/resilience-plan.md`

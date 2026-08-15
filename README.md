@@ -154,7 +154,7 @@ Requirements: Node.js 20+ (CI uses 22) and npm 10+.
 ## Running the tests
 
 ```bash
-npm test                # 874 unit + component tests
+npm test                # 880 unit + component tests
 npm run test:coverage   # same, with coverage thresholds enforced
 npm run test:e2e        # end-to-end scenarios x 2 viewports (needs a Chromium download once)
 

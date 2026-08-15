@@ -1,5 +1,12 @@
 # Disconnect resilience — plan of record
 
+> **Records the game this one was built from.** This document was written for SuperTaki, the
+> game UNO was ported from. Its examples name that game's cards and screens — the +3, the
+> breaker, the King, the staircase — none of which exist in this deck. The architecture, the
+> timing rules, the threat model and the UI reasoning carried over unchanged and are still the
+> contract; the cards and the rules examples did not. See [rules.md](rules.md) for the deck and
+> the rules actually in play.
+
 > **Superseded in part.** This document records the work as it was done, when the game ran in
 > the room creator's browser tab. The game now runs in the room's Durable Object, which
 > deleted a good deal of what is described below — the host snapshot, the room-code reclaim,

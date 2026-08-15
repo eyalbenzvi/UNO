@@ -267,7 +267,13 @@ export function GameScreen(): ReactNode {
    * closes the pile for the rest of the turn — without it the pile stays lit after
    * a draw and every tap is refused.
    */
-  const canDraw = myTurn && challenge === null && !publicState.hasDrawn && !actionPending;
+  /*
+   * Nothing anywhere left to draw, discard included. The pile then produces no card
+   * however often it is tapped, so it stops being an offer — and the turn has to be
+   * endable without one, or a table that reaches this state can never move again.
+   */
+  const pileSpent = publicState.drawPileCount === 0 && publicState.discardCount <= 1;
+  const canDraw = myTurn && challenge === null && !publicState.hasDrawn && !pileSpent && !actionPending;
   const drawnCard = table.drawnCardId
     ? (table.hand.find((card) => card.id === table.drawnCardId) ?? null)
     : null;
@@ -348,6 +354,7 @@ export function GameScreen(): ReactNode {
               challengeColor={publicState.activeColor}
               drawnCard={drawnCard}
               hasDrawn={publicState.hasDrawn}
+              pileSpent={pileSpent}
               playableCount={playable.length}
               onPassTurn={passTurn}
               onAccept={acceptWildDrawFour}
@@ -448,6 +455,8 @@ interface ActionPromptProps {
   readonly challengeColor: CardColor;
   readonly drawnCard: Card | null;
   readonly hasDrawn: boolean;
+  /** Nothing anywhere left to draw, so the turn must be endable without drawing. */
+  readonly pileSpent: boolean;
   readonly playableCount: number;
   readonly onPassTurn: () => void;
   readonly onAccept: () => void;
@@ -472,6 +481,7 @@ function ActionPrompt({
   challengeColor,
   drawnCard,
   hasDrawn,
+  pileSpent,
   playableCount,
   onPassTurn,
   onAccept,
@@ -532,7 +542,7 @@ function ActionPrompt({
    * is also an option, and saying which it is out loud saves the player hunting
    * through a hand that is no longer playable.
    */
-  if (hasDrawn) {
+  if (hasDrawn || pileSpent) {
     const card = drawnCard === null ? '—' : describeCard(t, drawnCard);
     return (
       <Callout
@@ -545,7 +555,11 @@ function ActionPrompt({
           </Button>
         }
       >
-        {playableCount > 0 ? t('game.drewCard', { card }) : t('game.drewUnplayable', { card })}
+        {pileSpent && !hasDrawn
+          ? t('game.pileSpent')
+          : playableCount > 0
+            ? t('game.drewCard', { card })
+            : t('game.drewUnplayable', { card })}
       </Callout>
     );
   }

@@ -280,8 +280,16 @@ function turnAction(view: BotView, random: () => number): GameAction {
      * The pile, which no longer ends the turn: the card it produces may be
      * playable, and the next decision — made a beat later, on the state the draw
      * produced — takes the branch above.
+     *
+     * Unless there is nothing left in it, discard included. A draw then takes no
+     * card, so `drawnCardId` stays null and the branch above is never reached —
+     * which would leave a robot asking the pile for a card for ever, on an accepted
+     * command that changes nothing and therefore resets every deadline that would
+     * otherwise rescue the seat.
      */
-    return { type: 'drawCard' };
+    return view.table.drawPileCount === 0 && view.table.discardCount <= 1
+      ? { type: 'passTurn' }
+      : { type: 'drawCard' };
   }
   return playChoice(pickBest(playable, view, random), view);
 }

@@ -5,12 +5,12 @@
 > [server-game-plan.md](server-game-plan.md). Everything here about the _rules_, the UI and
 > the engine still holds — what has moved is where the authority lives.
 
-> **Note.** This document records the review of the pre-rebrand version of this app, when
-> it was called Color Rush and shipped a 110-card deck and an in-app rules page. The rebrand
-> to UNO added the +2, King, +3 and Wild Draw Four challenge cards, dropped the rules page, and
-> changed UNO to take the leading colour instead of choosing one. Findings about the
-> parts that did not change still stand; anything below that mentions the old name, the old
-> deck size or the rules page describes the version that was reviewed, not the current one.
+> **Records the game this one was built from.** This document was written for SuperTaki, the
+> game UNO was ported from. Its examples name that game's cards and screens — the +3, the
+> breaker, the King, the staircase — none of which exist in this deck. The architecture, the
+> timing rules, the threat model and the UI reasoning carried over unchanged and are still the
+> contract; the cards and the rules examples did not. See [rules.md](rules.md) for the deck and
+> the rules actually in play.
 
 Seven review passes were carried out over the finished implementation, each from a different
 professional perspective. This records what each pass actually looked at, what it found, and
