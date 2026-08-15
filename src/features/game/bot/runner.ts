@@ -7,8 +7,6 @@ import {
   BOT_CATCH_MIN_MS,
   BOT_DECLARE_MAX_MS,
   BOT_DECLARE_MIN_MS,
-  BOT_SEQUENCE_MAX_MS,
-  BOT_SEQUENCE_MIN_MS,
   BOT_SOFT_DECLARE_MAX_MS,
   BOT_SOFT_DECLARE_MIN_MS,
   BOT_THINK_MAX_MS,
@@ -63,7 +61,7 @@ export interface BotRunnerOptions {
    */
   readonly schedule: (run: () => void, ms: number) => CancelPause;
   /** Pause override, so a test does not have to wait for a human-shaped delay. */
-  readonly pauseMs?: (kind: BotMoveKind, inSequence: boolean) => number;
+  readonly pauseMs?: (kind: BotMoveKind) => number;
 }
 
 interface Duty {
@@ -79,16 +77,20 @@ interface Duty {
 /**
  * Which duty goes first when several seats owe something.
  *
- * Answering a +3 unfreezes the whole table, so it leads. A declaration comes next
- * even though it is not a turn: it is free, it cannot block anybody, and ranking it
- * *below* another seat's turn left a robot sitting on an undeclared last card
- * through every intervening move — exposure the declare pause exists to bound.
- * Calling somebody out comes last, so the people at the table get there first.
+ * Answering a Wild Draw Four unfreezes the whole table, so it leads. A call comes
+ * next even though it is not a turn: it is free, it cannot block anybody, and
+ * ranking it *below* another seat's turn left a robot sitting on an uncalled last
+ * card through every intervening move — exposure the declare pause exists to bound.
+ * A pass ranks with the turn it finishes, because that is what it is: the second
+ * half of a turn already begun, and the table is waiting on it exactly as it waits
+ * on a card. Calling somebody out comes last, so the people at the table get there
+ * first.
  */
 const KIND_RANK: Readonly<Record<BotMoveKind, number>> = {
-  breaker: 0,
+  challenge: 0,
   declare: 1,
   turn: 2,
+  pass: 2,
   catch: 3,
 };
 
@@ -113,7 +115,7 @@ function keyFor(playerId: PlayerId, version: number, move: BotMove): string {
   const detail =
     action.type === 'playCard'
       ? `${action.cardId}:${action.chosenColor ?? '-'}`
-      : action.type === 'catchLastCard'
+      : action.type === 'catchUno'
         ? action.targetId
         : '';
   return `${playerId}|${String(version)}|${action.type}|${detail}`;
@@ -279,9 +281,8 @@ export class BotRunner {
   }
 
   private pauseFor(playerId: PlayerId, move: BotMove, standIn: boolean, view: BotView): number {
-    const inSequence = move.inSequence === true;
     if (this.options.pauseMs) {
-      return this.options.pauseMs(move.kind, inSequence);
+      return this.options.pauseMs(move.kind);
     }
     if (move.kind === 'declare' && standIn) {
       /*
@@ -295,8 +296,17 @@ export class BotRunner {
     const spread = this.options.random(playerId);
     const between = (min: number, max: number): number => Math.round(min + spread * (max - min));
     switch (move.kind) {
-      case 'breaker':
+      case 'challenge':
         return between(BOT_ANSWER_MIN_MS, BOT_ANSWER_MAX_MS);
+      case 'pass':
+        /*
+         * Nothing to think about, and nothing to pretend to think about: the card
+         * has already been drawn and looked at in front of everybody, and the pause
+         * that bought that moment has already been spent. A second human-shaped
+         * delay here would make every unlucky turn take twice as long as an ordinary
+         * one, which reads as a robot hesitating over a decision it does not have.
+         */
+        return 0;
       case 'declare':
         /*
          * The one pause that gets longer rather than shorter when the table is
@@ -309,9 +319,7 @@ export class BotRunner {
       case 'catch':
         return between(BOT_CATCH_MIN_MS, BOT_CATCH_MAX_MS);
       case 'turn':
-        return inSequence
-          ? between(BOT_SEQUENCE_MIN_MS, BOT_SEQUENCE_MAX_MS)
-          : between(BOT_THINK_MIN_MS, BOT_THINK_MAX_MS);
+        return between(BOT_THINK_MIN_MS, BOT_THINK_MAX_MS);
     }
   }
 }

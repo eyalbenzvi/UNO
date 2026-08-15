@@ -1,4 +1,4 @@
-import type { Card, CardColor } from './cards.ts';
+import type { Card, CardColor, CardId } from './cards.ts';
 import { topCard } from './engine.ts';
 import type { PlayContext } from './rules.ts';
 import type {
@@ -7,7 +7,6 @@ import type {
   GamePhase,
   GameState,
   PlayerId,
-  TakiModeState,
   TurnDirection,
 } from './state.ts';
 
@@ -18,18 +17,16 @@ export interface PublicPlayerView {
   /** True for a seat that has left the round. Their cards are frozen out of play. */
   readonly left?: boolean;
   /**
-   * How many hands this player has emptied, in a "stairs" round.
+   * What this seat scored in the round that has just ended, in a points round.
    *
-   * Public because it is the score of that round: how far down the staircase
-   * everybody is, is exactly what a card count is in a classic one. Sent only for a
-   * stairs round, and absent — rather than nought — in a classic one, so no screen
-   * can draw a staircase for a table that is not playing one.
+   * Sent only once a round is over, and absent in a classic one, so no screen can
+   * draw a scoreboard for a table that is not keeping one.
    */
-  readonly stairsStep?: number;
+  readonly roundPoints?: number;
 }
 
 /**
- * Everything a non-host client is allowed to know about the table.
+ * Everything a non-owning client is allowed to know about the table.
  * Contains no card identities other than the visible discard top, so hands can
  * never leak through a broadcast.
  */
@@ -39,10 +36,7 @@ export interface PublicGameState {
   readonly turnSeq?: number;
   readonly phase: GamePhase;
   readonly endReason?: GameEndReason;
-  /**
-   * How this round is won. Optional so a snapshot from a peer that predates the
-   * modes still reads, and absent is `classic` — the game as it was.
-   */
+  /** How this match is won. Absent reads as `classic`. */
   readonly mode?: GameMode;
   readonly players: readonly PublicPlayerView[];
   readonly drawPileCount: number;
@@ -51,22 +45,38 @@ export interface PublicGameState {
   readonly activeColor: CardColor;
   readonly direction: TurnDirection;
   readonly currentPlayerId: PlayerId | null;
-  readonly takiMode: TakiModeState | null;
-  readonly pendingPlus: boolean;
-  readonly pendingDraw: number;
-  readonly freePlay: boolean;
   /**
-   * Set while a +3 waits to be answered. Only the player who played it is
-   * named: who holds a breaker stays private, and a client already knows
-   * whether it can answer by looking at its own hand.
+   * Whether the player to move has already taken their card this turn.
+   *
+   * A boolean, and emphatically not the card's id: the ids in this deck spell the
+   * card out — `n-red-5-0` is a red five — so publishing the id would publish a
+   * card out of somebody's hand. What everybody at a real table can see is that a
+   * hand went to the pile and came back, which is exactly this. The card itself
+   * travels only to its owner, in {@link PrivateHandView}.
    */
-  readonly plusThree: { readonly playerId: PlayerId } | null;
+  readonly hasDrawn: boolean;
   /**
-   * Who has declared "last card". Public on purpose: at a real table the
-   * declaration is a shout everybody hears, and it is what tells the others
-   * whether the player on one card is safe or exposed.
+   * Set while a Wild Draw Four waits to be answered. Both seats are named: who
+   * played it, and who has to answer. Whether it was a bluff is not — that is the
+   * whole question the challenge is for.
    */
-  readonly declaredLastCard: readonly PlayerId[];
+  readonly challenge: { readonly playerId: PlayerId; readonly targetId: PlayerId } | null;
+  /**
+   * Who has called UNO. Public on purpose: at a real table the call is a shout
+   * everybody hears, and it is what tells the others whether the player on one
+   * card is safe or exposed.
+   */
+  readonly declaredUno: readonly PlayerId[];
+  /**
+   * Who can be caught *right now*.
+   *
+   * The window resolved for the client rather than the raw stamps behind it, so a
+   * screen cannot light a catch button a moment after the chance has gone and a bot
+   * cannot ask for a catch the room will refuse. It is public for the same reason
+   * the calls are: at a table, whether somebody is still catchable is something
+   * everybody can see, and it is the only thing the shout is racing.
+   */
+  readonly catchableUno: readonly PlayerId[];
   readonly winnerId: PlayerId | null;
 }
 
@@ -75,9 +85,24 @@ export interface PrivateHandView {
   readonly version: number;
   readonly playerId: PlayerId;
   readonly cards: readonly Card[];
+  /**
+   * The card this player has just drawn, when it is their turn and they have.
+   *
+   * Private, because the id names the card. It is what tells the owner's screen
+   * which single card of theirs is still playable.
+   */
+  readonly drawnCardId?: CardId;
+}
+
+/** Seats that can still be caught, given where the turn has got to. */
+export function catchableSeats(state: GameState): PlayerId[] {
+  return Object.entries(state.unoExposed)
+    .filter(([, stamp]) => stamp === state.turnSeq)
+    .map(([playerId]) => playerId);
 }
 
 export function toPublicGameState(state: GameState): PublicGameState {
+  const scored = state.phase === 'finished' && state.mode === 'points';
   return {
     version: state.version,
     turnSeq: state.turnSeq,
@@ -89,7 +114,7 @@ export function toPublicGameState(state: GameState): PublicGameState {
       name: player.name,
       cardCount: (state.hands[player.id] ?? []).length,
       ...(player.left === true ? { left: true } : {}),
-      ...(state.mode === 'stairs' ? { stairsStep: state.stairs[player.id] ?? 0 } : {}),
+      ...(scored ? { roundPoints: state.points[player.id] ?? 0 } : {}),
     })),
     drawPileCount: state.drawPile.length,
     discardTop: topCard(state),
@@ -97,34 +122,29 @@ export function toPublicGameState(state: GameState): PublicGameState {
     activeColor: state.activeColor,
     direction: state.direction,
     currentPlayerId: state.players[state.currentPlayerIndex]?.id ?? null,
-    takiMode: state.takiMode,
-    pendingPlus: state.pendingPlus,
-    pendingDraw: state.pendingDraw,
-    freePlay: state.freePlay,
-    plusThree: state.plusThree ? { playerId: state.plusThree.playerId } : null,
-    declaredLastCard: state.declaredLastCard.slice(),
+    hasDrawn: state.drawnCardId !== null,
+    challenge: state.challenge
+      ? { playerId: state.challenge.playerId, targetId: state.challenge.targetId }
+      : null,
+    declaredUno: state.declaredUno.slice(),
+    catchableUno: catchableSeats(state),
     winnerId: state.winnerId,
   };
 }
 
 export function toPrivateHandView(state: GameState, playerId: PlayerId): PrivateHandView {
+  const isTheirTurn = state.players[state.currentPlayerIndex]?.id === playerId;
   return {
     version: state.version,
     playerId,
     cards: (state.hands[playerId] ?? []).slice(),
+    ...(isTheirTurn && state.drawnCardId !== null ? { drawnCardId: state.drawnCardId } : {}),
   };
 }
 
-/** Rule context derived from public state — identical semantics on host and client. */
+/** Rule context derived from public state — identical semantics on room and client. */
 export function playContextFromPublic(state: PublicGameState): PlayContext {
-  return {
-    activeColor: state.activeColor,
-    topCard: state.discardTop,
-    openTakiColor: state.takiMode?.color ?? null,
-    takiSwitchOpen: state.takiMode?.takisOnly ?? false,
-    pendingDraw: state.pendingDraw,
-    freePlay: state.freePlay,
-  };
+  return { activeColor: state.activeColor, topCard: state.discardTop };
 }
 
 export interface StandingRow {
@@ -132,8 +152,8 @@ export interface StandingRow {
   readonly name: string;
   readonly cardCount: number;
   readonly rank: number;
-  /** Hands emptied out of the eight the staircase has, in a stairs round only. */
-  readonly stairsStep?: number;
+  /** What this seat scored in the round, in a points round only. */
+  readonly roundPoints?: number;
 }
 
 /**
@@ -143,37 +163,32 @@ export interface StandingRow {
  * went. Dropping them would erase somebody from the standings of a round they may
  * have been winning, which is not an honest result.
  *
- * In a stairs round the staircase outranks the hand, because it has to: a player
- * one step from the end is holding two cards and a player who has emptied nothing
- * may be holding one, and ordering those by hand size would put the loser on top.
- * The hand is still the tie-break within a step — of two players on the same step,
- * the one closer to finishing it is ahead — and a tie needs both to match, so two
- * players share a place only when they are genuinely level.
+ * Cards rather than points, in both modes, because the standings describe the
+ * *round*: the winner is the player who went out, and after them the question a
+ * table asks is who was closest. The points a round produced are shown beside each
+ * row rather than sorted by — sorting by them would put the winner, who scores the
+ * lot, at the top of a list they are already at the top of, and reverse everybody
+ * else.
  */
 export function computeStandings(state: PublicGameState): StandingRow[] {
-  const stairs = state.mode === 'stairs';
-  const stepOf = (player: PublicPlayerView): number => player.stairsStep ?? 0;
   const sorted = state.players
     .map((player) => ({ ...player }))
-    .sort(
-      (a, b) =>
-        (stairs ? stepOf(b) - stepOf(a) : 0) || a.cardCount - b.cardCount || a.name.localeCompare(b.name),
-    );
+    .sort((a, b) => a.cardCount - b.cardCount || a.name.localeCompare(b.name));
 
   const rows: StandingRow[] = [];
-  let previous: { readonly step: number; readonly cardCount: number } | null = null;
+  let previous: number | null = null;
   let rank = 0;
   sorted.forEach((player, index) => {
-    if (previous === null || player.cardCount !== previous.cardCount || stepOf(player) !== previous.step) {
+    if (previous === null || player.cardCount !== previous) {
       rank = index + 1;
-      previous = { step: stepOf(player), cardCount: player.cardCount };
+      previous = player.cardCount;
     }
     rows.push({
       playerId: player.id,
       name: player.name,
       cardCount: player.cardCount,
       rank,
-      ...(stairs ? { stairsStep: stepOf(player) } : {}),
+      ...(player.roundPoints === undefined ? {} : { roundPoints: player.roundPoints }),
     });
   });
   return rows;

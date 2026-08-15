@@ -7,6 +7,7 @@ import type { GameMode } from '../engine/state.ts';
 import { probeReachability } from './reachability.ts';
 import { MessageDeduplicator, clientMessage, type MessageContext } from './envelope.ts';
 import {
+  isTurnScoped,
   parseRoomMessage,
   type ClientMessage,
   type GameAction,
@@ -689,18 +690,14 @@ export class ClientSession implements Session {
   /**
    * Sends one intent and remembers it until it is answered.
    *
-   * The turn token travels only for the moves that belong to a turn. Declaring last
-   * card, catching somebody who did not, and answering a +3 are legal at any moment
-   * and race each other on purpose; gating them on a turn would hand every tie to
-   * whichever player broke the rule.
+   * The turn token travels only for the moves that belong to a turn — see
+   * {@link isTurnScoped}, which the room checks against the same list.
    */
   submitAction(action: GameAction, requestId: string = randomHex(8)): void {
-    const turnScoped =
-      action.type === 'playCard' || action.type === 'drawCard' || action.type === 'closeTaki';
     this.outbox = {
       requestId,
       action,
-      turnSeq: turnScoped ? this.lastTurnSeq : null,
+      turnSeq: isTurnScoped(action) ? this.lastTurnSeq : null,
       sentAt: this.now(),
     };
     this.sendOutbox();

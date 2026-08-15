@@ -17,10 +17,11 @@ import { toPrivateHandView, toPublicGameState, type PublicGameState } from '../e
  * This is the *only* function in the package that is allowed to see a
  * {@link GameState}; a test asserts that no other file in `bot/` imports one.
  *
- * The list of who holds a +3 Breaker stays on the host. What a robot is given is one
- * bit of it, about itself — see {@link BotView.canAnswerPlusThree} — because
- * inferring that from its own hand is wrong in exactly the state it matters, and a
- * fact about your own seat is not information about anybody else's.
+ * Nothing is smuggled through it. An earlier version of this game carried one extra
+ * bit — whether the room was waiting on this seat to answer a card — because who
+ * held the answering card was private and could not be inferred. UNO's equivalent,
+ * the Wild Draw Four challenge, names its target in the public table, so the bit is
+ * derivable by anybody watching and there is nothing left to pass through.
  */
 export interface BotSeatView {
   readonly id: PlayerId;
@@ -41,18 +42,16 @@ export interface BotView {
   readonly table: PublicGameState;
   /** This robot's own cards, and no others. */
   readonly hand: readonly Card[];
-  readonly seats: readonly BotSeatView[];
   /**
-   * Whether an open +3 is waiting on *this* seat.
+   * The card this seat has already drawn this turn, or `null`.
    *
-   * A fact about itself, not about anybody else: the list of who else holds a
-   * breaker stays on the host. It is here because holding a breaker and being
-   * waited for can come apart — a seat caught on its last card draws four cards
-   * mid-window, and a breaker among them is not one the engine is waiting for.
-   * Inferring it from the hand meant offering a move the table refuses, on the one
-   * path that unfreezes everybody.
+   * A fact about its own hand, arriving by the same private projection a human
+   * client gets it by — and load-bearing rather than convenient: once a card has
+   * been taken from the pile it is the only one the table will accept, so a robot
+   * that did not know would go on offering cards the room refuses.
    */
-  readonly canAnswerPlusThree: boolean;
+  readonly drawnCardId: string | null;
+  readonly seats: readonly BotSeatView[];
   /**
    * Seats this robot has been asked to go easy on, and how easy.
    *
@@ -83,12 +82,13 @@ export function botViewFor(
       lenientToward[player.id] = weight;
     }
   }
+  const hand = toPrivateHandView(state, playerId);
   return {
     playerId,
     table: toPublicGameState(state),
-    hand: toPrivateHandView(state, playerId).cards,
+    hand: hand.cards,
+    drawnCardId: hand.drawnCardId ?? null,
     seats: state.players.map((player) => ({ id: player.id, present: isPresent(player.id) })),
-    canAnswerPlusThree: state.plusThree?.awaiting.includes(playerId) === true,
     lenientToward: Object.keys(lenientToward).length > 0 ? lenientToward : NO_ASSIST,
   };
 }

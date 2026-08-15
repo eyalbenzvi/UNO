@@ -1,36 +1,34 @@
 import {
   NO_ASSIST,
-  OPENING_SCAN_LIMIT,
   assignHands,
   assistFor,
   biasedStartIndex,
   chooseDrawIndex,
   frontLoadForDraw,
-  preferredOpeningColor,
   type AssistWeights,
 } from './assist.ts';
 import {
   CARDS_DEALT_PER_PLAYER,
-  LAST_CARD_PENALTY,
-  PLUS_THREE_PENALTY,
-  PLUS_TWO_PENALTY,
-  STAIRS_STAGES,
+  CHALLENGE_LOSS_PENALTY,
+  DRAW_TWO_PENALTY,
+  UNO_PENALTY,
+  WILD_DRAW_FOUR_PENALTY,
   buildDeck,
   cardColor,
+  handPoints,
   isCardColor,
-  isNumberCard,
-  isTakiCard,
   isWildCard,
   requiresColorChoice,
-  stairsHandSize,
   type Card,
   type CardColor,
+  type CardId,
 } from './cards.ts';
 import { createRng, shuffle, type RngState } from './prng.ts';
-import { isCardPlayable, stepIndex, type PlayContext } from './rules.ts';
+import { isCardPlayable, isWildDrawFourHonest, stepIndex, type PlayContext } from './rules.ts';
 import {
   MAX_PLAYERS,
   MIN_PLAYERS,
+  type ChallengeState,
   type CommandResult,
   type EnginePlayer,
   type GameCommand,
@@ -52,7 +50,6 @@ interface Draft {
   version: number;
   phase: GameState['phase'];
   mode: GameMode;
-  stairs: Record<PlayerId, number>;
   players: readonly EnginePlayer[];
   assist: AssistWeights;
   hands: Record<PlayerId, Card[]>;
@@ -61,12 +58,11 @@ interface Draft {
   activeColor: CardColor;
   direction: TurnDirection;
   currentPlayerIndex: number;
-  takiMode: GameState['takiMode'];
-  pendingPlus: boolean;
-  pendingDraw: number;
-  freePlay: boolean;
-  plusThree: GameState['plusThree'];
-  declaredLastCard: PlayerId[];
+  drawnCardId: CardId | null;
+  challenge: ChallengeState | null;
+  declaredUno: PlayerId[];
+  unoExposed: Record<PlayerId, number>;
+  points: Record<PlayerId, number>;
   rng: RngState;
   winnerId: PlayerId | null;
   endReason: GameEndReason | null;
@@ -83,7 +79,6 @@ function toDraft(state: GameState): Draft {
     version: state.version,
     phase: state.phase,
     mode: state.mode,
-    stairs: { ...state.stairs },
     players: state.players,
     assist: state.assist,
     hands,
@@ -92,12 +87,11 @@ function toDraft(state: GameState): Draft {
     activeColor: state.activeColor,
     direction: state.direction,
     currentPlayerIndex: state.currentPlayerIndex,
-    takiMode: state.takiMode,
-    pendingPlus: state.pendingPlus,
-    pendingDraw: state.pendingDraw,
-    freePlay: state.freePlay,
-    plusThree: state.plusThree,
-    declaredLastCard: state.declaredLastCard.slice(),
+    drawnCardId: state.drawnCardId,
+    challenge: state.challenge,
+    declaredUno: state.declaredUno.slice(),
+    unoExposed: { ...state.unoExposed },
+    points: { ...state.points },
     rng: state.rng,
     winnerId: state.winnerId,
     endReason: state.endReason,
@@ -107,17 +101,67 @@ function toDraft(state: GameState): Draft {
 }
 
 /**
- * Drops declarations that no longer describe a hand of one card.
+ * Drops calls that no longer describe a hand of one card.
  *
- * A declaration belongs to the single card a player is holding, not to the
- * player: whoever draws back up owes a fresh declaration next time they come
- * down to one. Applied at the end of every command, so no code path can leave a
- * stale declaration behind for the win check to honour.
+ * A call belongs to the single card a player is holding, not to the player:
+ * whoever draws back up owes a fresh "UNO!" next time they come down to one.
+ * Applied at the end of every command, so no code path can leave a stale call
+ * behind for the win check to honour.
  */
 function syncDeclarations(draft: Draft): void {
-  draft.declaredLastCard = draft.declaredLastCard.filter(
-    (playerId) => (draft.hands[playerId] ?? []).length === 1,
-  );
+  draft.declaredUno = draft.declaredUno.filter((playerId) => (draft.hands[playerId] ?? []).length === 1);
+}
+
+/**
+ * Opens and closes the windows in which a silent player can be caught.
+ *
+ * Two rules, and both halves are needed to match the official window exactly:
+ *
+ * - A seat is stamped the moment its hand *becomes* a single uncalled card —
+ *   on the transition, never afterwards. Stamping whenever a hand merely *is*
+ *   one card would re-open the window on every later turn and make it eternal.
+ * - A stamp is dropped when the hand stops being one card, or when the player
+ *   calls UNO.
+ *
+ * Closing the window when the next player begins their turn is the other half,
+ * and it lives at the two turn entry points rather than here — see
+ * {@link beginTurnAction}.
+ */
+function settleUnoWindows(draft: Draft, before: Readonly<Record<PlayerId, readonly Card[]>>): void {
+  const next: Record<PlayerId, number> = { ...draft.unoExposed };
+  for (const player of draft.players) {
+    const now = (draft.hands[player.id] ?? []).length;
+    if (now !== 1 || draft.declaredUno.includes(player.id) || player.left === true) {
+      delete next[player.id];
+      continue;
+    }
+    if ((before[player.id] ?? []).length !== 1) {
+      next[player.id] = draft.turnSeq;
+    }
+  }
+  draft.unoExposed = next;
+}
+
+/**
+ * The first thing anybody's turn does: shut everybody else's window.
+ *
+ * The official rule closes the catch the moment the next player *begins* — draws
+ * or plays — not when their turn ends. A stamp alone cannot express that, because
+ * `turnSeq` does not move until the turn is over, so a player who draws and then
+ * thinks would leave the previous player exposed all the while. This is the half
+ * of the window that answers "begins", and the stamp is the backstop for a turn
+ * that ends without anybody acting at all.
+ *
+ * The actor's own stamp survives, because a player cannot close their own window
+ * by taking the turn that follows it.
+ */
+function beginTurnAction(draft: Draft, actorId: PlayerId): void {
+  const kept: Record<PlayerId, number> = {};
+  const own = draft.unoExposed[actorId];
+  if (own !== undefined) {
+    kept[actorId] = own;
+  }
+  draft.unoExposed = kept;
 }
 
 function freeze(draft: Draft): GameState {
@@ -126,7 +170,6 @@ function freeze(draft: Draft): GameState {
     version: draft.version,
     phase: draft.phase,
     mode: draft.mode,
-    stairs: draft.stairs,
     players: draft.players,
     assist: draft.assist,
     hands: draft.hands,
@@ -135,12 +178,11 @@ function freeze(draft: Draft): GameState {
     activeColor: draft.activeColor,
     direction: draft.direction,
     currentPlayerIndex: draft.currentPlayerIndex,
-    takiMode: draft.takiMode,
-    pendingPlus: draft.pendingPlus,
-    pendingDraw: draft.pendingDraw,
-    freePlay: draft.freePlay,
-    plusThree: draft.plusThree,
-    declaredLastCard: draft.declaredLastCard,
+    drawnCardId: draft.drawnCardId,
+    challenge: draft.challenge,
+    declaredUno: draft.declaredUno,
+    unoExposed: draft.unoExposed,
+    points: draft.points,
     rng: draft.rng,
     winnerId: draft.winnerId,
     endReason: draft.endReason,
@@ -163,174 +205,28 @@ export function currentPlayer(state: GameState): EnginePlayer | null {
 }
 
 /**
- * The same context as {@link playContextFromState}, from the mutable copy a command
- * is halfway through. The draw pile leans on it — a card is worth more when it can
- * be put straight back down — and a half-resolved command is precisely when that
- * question is asked.
+ * Seats still in the round.
+ *
+ * Counted for the two-player rules — a Reverse acts as a Skip at two seats — and
+ * counted by *seat*, not by who is currently connected. A three-player table with
+ * somebody temporarily absent is still a three-player table, and must not start
+ * playing the two-player rules for as long as a phone is in a tunnel.
  */
+function activeSeatCount(draft: Draft): number {
+  return draft.players.filter((player) => player.left !== true).length;
+}
+
+function indexOfPlayer(draft: Draft, playerId: PlayerId): number {
+  return draft.players.findIndex((player) => player.id === playerId);
+}
+
 function playContextFromDraft(draft: Draft): PlayContext {
-  return {
-    activeColor: draft.activeColor,
-    topCard: topCard(draft),
-    openTakiColor: draft.takiMode?.color ?? null,
-    takiSwitchOpen: draft.takiMode?.takisOnly ?? false,
-    pendingDraw: draft.pendingDraw,
-    freePlay: draft.freePlay,
-  };
+  return { activeColor: draft.activeColor, topCard: topCard(draft) };
 }
 
 /** Builds the {@link PlayContext} for the supplied authoritative state. */
 export function playContextFromState(state: GameState): PlayContext {
-  return {
-    activeColor: state.activeColor,
-    topCard: topCard(state),
-    openTakiColor: state.takiMode?.color ?? null,
-    takiSwitchOpen: state.takiMode?.takisOnly ?? false,
-    pendingDraw: state.pendingDraw,
-    freePlay: state.freePlay,
-  };
-}
-
-/**
- * Creates a fresh game.
- *
- * The opening card is the first *number* card drawn from the shuffled deck;
- * any action/wild card met on the way is moved to the bottom of the draw pile.
- * This keeps the first turn unambiguous without discarding cards.
- *
- * `initialVersion` lets a second round continue the version sequence of the
- * first. Clients drop snapshots older than the newest one they applied, so a
- * new round must never restart numbering.
- *
- * `mode` is fixed here and never again: a round is won the way it was dealt. Both
- * modes open with the same eight cards, so nothing about this function's deal
- * depends on it — in "stairs" the difference begins the first time somebody runs
- * out. See {@link GameMode}.
- *
- * `assist` is fixed here for the same reason and does three things to this
- * function, all of them after the shuffle and none of them to the deck: which seat
- * receives which of the hands just dealt, which number card the pile stops on for
- * the opening, and which seat moves first. With no weight on any seat all three are
- * no-ops and the round is dealt exactly as it was before the feature existed. See
- * `assist.ts` and `docs/assist.md`.
- */
-export function createGame(
-  players: readonly EnginePlayer[],
-  seed: number,
-  initialVersion = 1,
-  startingSeat = 0,
-  mode: GameMode = 'classic',
-  assist: AssistWeights = NO_ASSIST,
-): CommandResult {
-  if (players.length < MIN_PLAYERS) {
-    return reject('notEnoughPlayers');
-  }
-  if (players.length > MAX_PLAYERS) {
-    return reject('tooManyPlayers');
-  }
-  const uniqueIds = new Set(players.map((player) => player.id));
-  if (uniqueIds.size !== players.length) {
-    return reject('duplicatePlayerId');
-  }
-
-  const shuffled = shuffle(buildDeck(), createRng(seed));
-  const rng = shuffled.state;
-  const pile = shuffled.items;
-
-  const dealt: Card[][] = players.map(() => []);
-  for (let round = 0; round < CARDS_DEALT_PER_PLAYER; round += 1) {
-    for (let seat = 0; seat < players.length; seat += 1) {
-      const card = pile.shift();
-      if (card) {
-        (dealt[seat] as Card[]).push(card);
-      }
-    }
-  }
-  /*
-   * Who gets which of the hands just dealt. A permutation of them and nothing more:
-   * the deck, the order it was shuffled in and what is left in `pile` are all
-   * untouched, which is what makes this method invisible rather than merely quiet.
-   */
-  const assigned = assignHands(dealt, players, assist);
-  const hands: Record<PlayerId, Card[]> = {};
-  players.forEach((player, seat) => {
-    hands[player.id] = (assigned[seat] ?? []).slice();
-  });
-
-  /*
-   * The opening card, with a colour the table would like it to be.
-   *
-   * The walk is the one that was always here — stop on the first number card,
-   * bury what it passes — with one extra condition and a budget on it. A number
-   * card of the wrong colour is buried exactly as an action card is, so the pile
-   * still holds every card it held, and past `OPENING_SCAN_LIMIT` the preference
-   * gives up rather than digging a hole in the deck.
-   */
-  const preferredColor = preferredOpeningColor(hands, players, assist);
-  const buried: Card[] = [];
-  let opening: Card | null = null;
-  let scanned = 0;
-  while (pile.length > 0) {
-    const card = pile.shift() as Card;
-    if (
-      isNumberCard(card) &&
-      (preferredColor === null || card.color === preferredColor || scanned >= OPENING_SCAN_LIMIT)
-    ) {
-      opening = card;
-      break;
-    }
-    buried.push(card);
-    scanned += 1;
-  }
-  if (!opening) {
-    // Impossible with the documented deck, but keep the engine total.
-    return reject('notEnoughPlayers');
-  }
-
-  const drawPile = pile.concat(buried);
-  /*
-   * The host holds seat 0 for the life of the room, so a fixed starting index
-   * meant the host moved first in every round, for ever. A table notices that by
-   * about the fifth round.
-   */
-  const rotated = ((startingSeat % players.length) + players.length) % players.length;
-  const firstIndex = biasedStartIndex(players, assist, startingSeat, rotated);
-  const stairs: Record<PlayerId, number> = {};
-  for (const player of players) {
-    stairs[player.id] = 0;
-  }
-  const state: GameState = {
-    version: initialVersion,
-    phase: 'playing',
-    mode,
-    stairs,
-    players,
-    assist,
-    hands,
-    drawPile,
-    discardPile: [opening],
-    activeColor: opening.color,
-    direction: 1,
-    currentPlayerIndex: firstIndex,
-    takiMode: null,
-    pendingPlus: false,
-    pendingDraw: 0,
-    freePlay: false,
-    plusThree: null,
-    declaredLastCard: [],
-    rng,
-    winnerId: null,
-    endReason: null,
-    turnSeq: 0,
-    seed,
-  };
-
-  const firstPlayer = players[firstIndex] as EnginePlayer;
-  const events: GameEvent[] = [
-    { type: 'gameStarted', firstPlayerId: firstPlayer.id, activeColor: opening.color },
-    { type: 'turnChanged', playerId: firstPlayer.id },
-  ];
-  return { ok: true, state, events };
+  return { activeColor: state.activeColor, topCard: topCard(state) };
 }
 
 /**
@@ -354,8 +250,21 @@ function nextActiveIndex(draft: Draft, from: number): number {
 function advanceTurn(draft: Draft, events: GameEvent[]): void {
   draft.currentPlayerIndex = nextActiveIndex(draft, draft.currentPlayerIndex);
   const next = draft.players[draft.currentPlayerIndex] as EnginePlayer;
+  draft.drawnCardId = null;
   draft.turnSeq += 1;
   events.push({ type: 'turnChanged', playerId: next.id });
+}
+
+/**
+ * Sends the turn past `victimIndex`, who has just lost it.
+ *
+ * One `advanceTurn`, not two. The seat that is skipped is *moved to* rather than
+ * stepped over, so the turn counter moves exactly once — which matters because
+ * clients gate a move on `turnSeq`, and the catch window is measured in it.
+ */
+function skipPast(draft: Draft, victimIndex: number, events: GameEvent[]): void {
+  draft.currentPlayerIndex = victimIndex;
+  advanceTurn(draft, events);
 }
 
 /**
@@ -413,9 +322,9 @@ function takeCard(draft: Draft, playerId: PlayerId): Card | undefined {
   return draft.drawPile.splice(index, 1)[0];
 }
 
-/** Draws `count` cards, recycling when needed. Returns how many were actually drawn. */
-function drawCards(draft: Draft, playerId: PlayerId, count: number, events: GameEvent[]): number {
-  let drawn = 0;
+/** Draws `count` cards, recycling when needed. Returns the cards actually drawn. */
+function drawCards(draft: Draft, playerId: PlayerId, count: number, events: GameEvent[]): Card[] {
+  const drawn: Card[] = [];
   for (let i = 0; i < count; i += 1) {
     if (draft.drawPile.length === 0) {
       recycleDrawPile(draft, playerId, events);
@@ -426,145 +335,181 @@ function drawCards(draft: Draft, playerId: PlayerId, count: number, events: Game
       break;
     }
     (draft.hands[playerId] as Card[]).push(card);
-    drawn += 1;
+    drawn.push(card);
   }
-  if (drawn > 0) {
-    events.push({ type: 'cardDrawn', playerId, count: drawn });
+  if (drawn.length > 0) {
+    events.push({ type: 'cardDrawn', playerId, count: drawn.length });
   }
   return drawn;
 }
 
-/**
- * Settles an open +3: either the breaker sends it back at whoever played it,
- * or everybody else pays. Either way the turn then moves on from the +3
- * player's seat, which is still the seat to move.
- */
-function resolvePlusThree(draft: Draft, breakerId: PlayerId | null, events: GameEvent[]): void {
-  const sourceId = draft.plusThree?.playerId ?? (draft.players[draft.currentPlayerIndex] as EnginePlayer).id;
-  draft.plusThree = null;
+/** Whether there is nothing left anywhere to draw, discard pile included. */
+function pileExhausted(draft: Draft): boolean {
+  return draft.drawPile.length === 0 && draft.discardPile.length <= 1;
+}
 
-  if (breakerId !== null) {
-    events.push({ type: 'plusThreeBroken', playerId: breakerId, targetId: sourceId });
-    drawCards(draft, sourceId, PLUS_THREE_PENALTY, events);
-  } else {
+/**
+ * Ends the round if `playerId` has just put their last card down.
+ *
+ * Called *after* the played card's effect has resolved, never before, because a
+ * round can be won on a Draw Two or a Wild Draw Four and the victim still draws.
+ * Ending the round first would hand the winner four cards' worth of somebody
+ * else's score and let the table off a penalty it had honestly earned.
+ */
+function finishIfEmpty(draft: Draft, playerId: PlayerId, events: GameEvent[]): boolean {
+  if ((draft.hands[playerId] ?? []).length > 0) {
+    return false;
+  }
+  draft.phase = 'finished';
+  draft.winnerId = playerId;
+  draft.endReason = 'won';
+  draft.challenge = null;
+  draft.drawnCardId = null;
+  draft.unoExposed = {};
+  events.push({ type: 'playerWon', playerId });
+
+  if (draft.mode === 'points') {
+    const points: Record<PlayerId, number> = {};
+    let total = 0;
     for (const player of draft.players) {
-      // A player who has left the round pays nothing: their hand is out of play.
-      if (player.id !== sourceId && player.left !== true) {
-        drawCards(draft, player.id, PLUS_THREE_PENALTY, events);
+      if (player.id === playerId) {
+        continue;
       }
+      // A seat that left is still holding cards, and they still count: the round
+      // was won against the table as it stood.
+      const value = handPoints(draft.hands[player.id] ?? []);
+      points[player.id] = value;
+      total += value;
     }
+    points[playerId] = total;
+    draft.points = points;
+    events.push({ type: 'roundScored', playerId, points: total });
   }
-  advanceTurn(draft, events);
+  return true;
 }
 
 /**
- * Opens the window in which a +3 Breaker may be played out of turn. Only
- * players actually holding a breaker are waited for, so the common case — no
- * breaker at the table — settles straight away and nobody is asked anything.
+ * Opens the window in which the next seat may take the four cards or call the
+ * bluff. The table is frozen until it answers.
  */
-function openPlusThree(draft: Draft, events: GameEvent[]): void {
-  const playerId = (draft.players[draft.currentPlayerIndex] as EnginePlayer).id;
-  events.push({ type: 'plusThreePlayed', playerId });
-
-  const awaiting = draft.players
-    .filter(
-      (player) =>
-        player.id !== playerId &&
-        player.left !== true &&
-        (draft.hands[player.id] ?? []).some((card) => card.kind === 'breakPlusThree'),
-    )
-    .map((player) => player.id);
-
-  if (awaiting.length === 0) {
-    resolvePlusThree(draft, null, events);
-    return;
-  }
-  draft.plusThree = { playerId, awaiting };
+function openChallenge(draft: Draft, playerId: PlayerId, bluffed: boolean, events: GameEvent[]): void {
+  const targetIndex = nextActiveIndex(draft, draft.currentPlayerIndex);
+  const target = draft.players[targetIndex] as EnginePlayer;
+  draft.challenge = { playerId, targetId: target.id, bluffed };
+  events.push({ type: 'challengeOpened', playerId, targetId: target.id });
 }
 
 /**
- * Applies the effect of the card that ended a player's action.
- * Called for a card played outside Taki mode, and for the final card of a
- * closed Taki sequence.
+ * Settles an open Wild Draw Four, one way or the other, and moves the turn on.
+ *
+ * The three outcomes and where the turn lands:
+ *
+ * - **Taken.** The target draws four and loses the turn, so play resumes with the
+ *   seat after them.
+ * - **Bluff called, and it was a bluff.** The player who bluffed draws the four
+ *   themselves, and the challenger keeps their turn — they are next anyway, so the
+ *   turn simply moves on to them.
+ * - **Bluff called wrongly.** The challenger draws the four they owed plus two for
+ *   the accusation, and still loses the turn.
+ *
+ * The colour the player named stands in every case. A challenge decides who draws,
+ * never what is led.
  */
-function resolveCardEffect(draft: Draft, card: Card, events: GameEvent[]): void {
+function resolveChallenge(draft: Draft, challenged: boolean, events: GameEvent[]): void {
+  const pending = draft.challenge as ChallengeState;
+  draft.challenge = null;
+  const targetIndex = indexOfPlayer(draft, pending.targetId);
+
+  if (!challenged) {
+    const drawn = drawCards(draft, pending.targetId, WILD_DRAW_FOUR_PENALTY, events);
+    events.push({ type: 'challengeDeclined', playerId: pending.targetId, drawn: drawn.length });
+    skipPast(draft, targetIndex, events);
+  } else if (pending.bluffed) {
+    const drawn = drawCards(draft, pending.playerId, WILD_DRAW_FOUR_PENALTY, events);
+    events.push({
+      type: 'challengeResolved',
+      challengerId: pending.targetId,
+      targetId: pending.playerId,
+      bluffed: true,
+      drawn: drawn.length,
+    });
+    // The challenger is the next seat, so an ordinary advance lands the turn on
+    // them — which is exactly what winning a challenge buys.
+    advanceTurn(draft, events);
+  } else {
+    const drawn = drawCards(draft, pending.targetId, CHALLENGE_LOSS_PENALTY, events);
+    events.push({
+      type: 'challengeResolved',
+      challengerId: pending.targetId,
+      targetId: pending.targetId,
+      bluffed: false,
+      drawn: drawn.length,
+    });
+    skipPast(draft, targetIndex, events);
+  }
+
+  // The Wild Draw Four may have been somebody's last card. The round ends here
+  // rather than when it was played, so the four cards it cost are drawn first and
+  // counted in the score.
+  finishIfEmpty(draft, pending.playerId, events);
+}
+
+/**
+ * Applies the effect of the card that has just been played.
+ *
+ * A Wild Draw Four is the one card that does not finish here: it opens a window
+ * and leaves the turn where it is until somebody answers.
+ */
+function resolveCardEffect(draft: Draft, card: Card, playerId: PlayerId, events: GameEvent[]): void {
   switch (card.kind) {
-    case 'stop': {
-      // Whoever the Stop lands on has to be somebody still playing, or the card
+    case 'skip': {
+      // Whoever the Skip lands on has to be somebody still playing, or the card
       // would be spent on an empty seat and the next live player would be robbed
-      // of their turn instead.
-      const skippedIndex = nextActiveIndex(draft, draft.currentPlayerIndex);
-      const skipped = draft.players[skippedIndex] as EnginePlayer;
-      events.push({ type: 'playerSkipped', playerId: skipped.id });
-      draft.currentPlayerIndex = skippedIndex;
-      advanceTurn(draft, events);
+      // of their turn instead. At two seats this comes straight back round, which
+      // is the official two-player rule falling out rather than being written.
+      const victim = nextActiveIndex(draft, draft.currentPlayerIndex);
+      events.push({ type: 'playerSkipped', playerId: (draft.players[victim] as EnginePlayer).id });
+      skipPast(draft, victim, events);
       return;
     }
-    case 'plus': {
-      const player = draft.players[draft.currentPlayerIndex] as EnginePlayer;
-      draft.pendingPlus = true;
-      events.push({ type: 'extraTurn', playerId: player.id });
-      return;
-    }
-    case 'plusTwo': {
-      const player = draft.players[draft.currentPlayerIndex] as EnginePlayer;
-      draft.pendingDraw += PLUS_TWO_PENALTY;
-      events.push({ type: 'drawStacked', playerId: player.id, total: draft.pendingDraw });
-      advanceTurn(draft, events);
-      return;
-    }
-    case 'direction': {
+    case 'reverse': {
       draft.direction = draft.direction === 1 ? -1 : 1;
       events.push({ type: 'directionChanged', direction: draft.direction });
+      if (activeSeatCount(draft) === 2) {
+        /*
+         * With two players a Reverse is a Skip, and the official rules say so
+         * outright. It has to be written rather than left to fall out: turning the
+         * direction round at two seats moves the turn to the same place turning it
+         * round does at any other number — the other player — so the card would
+         * quietly do nothing at all.
+         */
+        const victim = nextActiveIndex(draft, draft.currentPlayerIndex);
+        events.push({ type: 'playerSkipped', playerId: (draft.players[victim] as EnginePlayer).id });
+        skipPast(draft, victim, events);
+        return;
+      }
       advanceTurn(draft, events);
       return;
     }
-    case 'king': {
-      /*
-       * The King buys its owner a turn with no matching at all, and on the way it
-       * wipes whatever +2 run was owed. Both halves are the same card: the run
-       * disappears — however high it had been stacked — and the player who wiped
-       * it plays on instead of drawing. The cancellation is announced separately
-       * from the free turn because the number of cards nobody is drawing is the
-       * part of the moment the table cares about.
-       */
-      const player = draft.players[draft.currentPlayerIndex] as EnginePlayer;
-      const cancelled = draft.pendingDraw;
-      draft.pendingDraw = 0;
-      draft.pendingPlus = true;
-      draft.freePlay = true;
-      if (cancelled > 0) {
-        events.push({ type: 'drawRunCancelled', playerId: player.id, cancelled });
-      }
-      events.push({ type: 'extraTurn', playerId: player.id });
+    case 'drawTwo': {
+      const victim = nextActiveIndex(draft, draft.currentPlayerIndex);
+      const victimId = (draft.players[victim] as EnginePlayer).id;
+      drawCards(draft, victimId, DRAW_TWO_PENALTY, events);
+      events.push({ type: 'playerSkipped', playerId: victimId });
+      skipPast(draft, victim, events);
       return;
     }
-    case 'plusThree': {
-      openPlusThree(draft, events);
+    case 'wildDrawFour': {
+      // Left open on purpose: the turn does not move until the next seat answers.
       return;
     }
     case 'number':
-    case 'taki':
-    case 'superTaki':
-    case 'colorChange':
-    case 'breakPlusThree': {
+    case 'wild': {
       advanceTurn(draft, events);
       return;
     }
   }
-}
-
-/**
- * Whether emptying this player's hand right now would end the round for them.
- *
- * Always, in a classic round. In "stairs" only on the eighth hand: every earlier
- * one is a step, and a step ends nothing.
- */
-function emptyHandEndsRound(draft: Draft, playerId: PlayerId): boolean {
-  if (draft.mode !== 'stairs') {
-    return true;
-  }
-  return (draft.stairs[playerId] ?? 0) + 1 >= STAIRS_STAGES;
+  void playerId;
 }
 
 function applyPlayCard(
@@ -572,7 +517,7 @@ function applyPlayCard(
   playerId: PlayerId,
   cardId: string,
   chosenColor: CardColor | undefined,
-  declareLastCard: boolean,
+  declareUno: boolean,
 ): CommandResult {
   const hand = state.hands[playerId] ?? [];
   const card = hand.find((candidate) => candidate.id === cardId);
@@ -580,15 +525,14 @@ function applyPlayCard(
     return reject('cardNotInHand');
   }
 
-  // While a +3 is open nothing may be played but a breaker, and only by somebody
-  // being waited for — not even by the player whose turn it is.
-  const answeringPlusThree = state.plusThree !== null && card.kind === 'breakPlusThree';
-  if (state.plusThree !== null && (!answeringPlusThree || !state.plusThree.awaiting.includes(playerId))) {
-    return reject('awaitingBreak');
+  /*
+   * A card was drawn this turn, so it is the only one that may be played. The
+   * rest of the hand is not illegal because of what it is — it is out of reach
+   * because the turn has already been spent on the pile.
+   */
+  if (state.drawnCardId !== null && state.drawnCardId !== cardId) {
+    return reject('onlyDrawnCardPlayable');
   }
-  // A breaker with no +3 to break is a legal card, and an expensive one — see
-  // the penalty below.
-  const spendingBreaker = state.plusThree === null && card.kind === 'breakPlusThree';
 
   if (requiresColorChoice(card)) {
     if (chosenColor === undefined) {
@@ -601,322 +545,192 @@ function applyPlayCard(
     return reject('colorNotAllowed');
   }
 
-  if (!answeringPlusThree) {
-    if (state.takiMode) {
-      /*
-       * Colour is the rule inside a sequence, with one opening: a Taki laid
-       * straight onto another Taki continues the run whatever it is printed on,
-       * and may do so only while nothing but Takis have been played. A coloured
-       * Taki takes the run into its own colour; a Super Taki has none and leaves
-       * it where it is, which is the only difference between them here. After an
-       * ordinary card the colour is settled, and no later Taki reopens it.
-       */
-      const carriesTheRun = state.takiMode.takisOnly && isTakiCard(card);
-      if (!carriesTheRun) {
-        if (isWildCard(card)) {
-          return reject('wildNotAllowedInTaki');
-        }
-        if (card.color !== state.takiMode.color) {
-          return reject('wrongTakiColor');
-        }
-      }
-    } else if (state.pendingDraw > 0 && card.kind !== 'plusTwo' && card.kind !== 'king') {
-      return reject('mustAnswerDraw');
-    } else if (!isCardPlayable(card, playContextFromState(state))) {
-      return reject('illegalCard');
-    }
+  if (!isCardPlayable(card, playContextFromState(state))) {
+    return reject('illegalCard');
   }
 
   const draft = toDraft(state);
   const events: GameEvent[] = [];
+  const handsBefore = state.hands;
+
+  /*
+   * The verdict on a Wild Draw Four, decided here and nowhere else.
+   *
+   * Against the colour that was leading *before* this card, which is the whole
+   * point: the rule asks whether the player could have followed suit instead. Read
+   * a line later — after `activeColor` becomes the colour they just named — the
+   * question becomes "do you hold the colour you chose", which a player naming
+   * their own strongest colour answers yes to almost every time. The challenge
+   * would then exonerate every bluff, and the card that makes UNO interesting
+   * would be a coin the challenger always loses.
+   */
+  const bluffed =
+    card.kind === 'wildDrawFour' ? !isWildDrawFourHonest(hand, state.activeColor, cardId) : false;
+
+  beginTurnAction(draft, playerId);
 
   draft.hands[playerId] = (draft.hands[playerId] as Card[]).filter((candidate) => candidate.id !== cardId);
   draft.discardPile.push(card);
+  draft.drawnCardId = null;
 
-  // Only Change Colour repaints the table; every other colourless card leaves
-  // the leading colour exactly as it was.
   const resultingColor = chosenColor ?? cardColor(card) ?? draft.activeColor;
   draft.activeColor = resultingColor;
-  draft.pendingPlus = false;
-  draft.freePlay = false;
   events.push({ type: 'cardPlayed', playerId, card, resultingColor });
   if (chosenColor !== undefined) {
     events.push({ type: 'colorChosen', playerId, color: resultingColor });
   }
 
   /*
-   * A breaker with nothing to break costs its owner the three cards it would
-   * have sent back — charged here, before the win check, so it cannot be used as
-   * a free way out of a last card.
-   */
-  if (spendingBreaker) {
-    const penaltyEvents: GameEvent[] = [];
-    const penalty = drawCards(draft, playerId, PLUS_THREE_PENALTY, penaltyEvents);
-    events.push({ type: 'breakerSpent', playerId, penalty }, ...penaltyEvents);
-  }
-
-  /*
-   * A round cannot be won on a Plus.
-   *
-   * A Plus is an obligation to play again, and an empty hand has nothing to meet it
-   * with — so instead of ending the round it takes from the pile the card the
-   * obligation is worth, a Plus being payable that way on any turn, and the turn
-   * moves on with its owner holding the single card they have just drawn.
-   *
-   * Only a *winning* hand. In "stairs" an empty hand is usually a step rather than
-   * the end, and a step is nothing for a Plus to be incoherent about: the hand
-   * empties, the next one is dealt, and the Plus goes on to buy a turn to play it
-   * with, exactly as it would mid-hand. It is the eighth hand — the one that ends
-   * the round — that a Plus cannot finish, for the same reason as in a classic
-   * round.
-   *
-   * The one case where the hand stays empty is a pile with nothing in it, discard
-   * included. Nothing can be taken, so nothing is, and the win check below takes
-   * the moment instead — a round that cannot go on has to end somewhere, and the
-   * player holding no cards is where.
-   */
-  let refilledOnPlus = false;
-  if (
-    card.kind === 'plus' &&
-    (draft.hands[playerId] ?? []).length === 0 &&
-    emptyHandEndsRound(draft, playerId)
-  ) {
-    const refillEvents: GameEvent[] = [];
-    if (drawCards(draft, playerId, 1, refillEvents) === 0) {
-      // Nothing anywhere to take. The pile says so — the line is the only
-      // explanation the table gets for a round that ended on a Plus after all.
-      events.push(...refillEvents);
-    } else {
-      refilledOnPlus = true;
-      /*
-       * The declaration went with the card that has just gone down, and that card
-       * was their last. What replaces it is a card nobody has claimed, so the
-       * shout is owed again — `syncDeclarations` would otherwise keep the old one
-       * alive for it, the hand being a single card either way.
-       */
-      draft.declaredLastCard = draft.declaredLastCard.filter((candidate) => candidate !== playerId);
-      events.push({ type: 'plusRefilled', playerId }, ...refillEvents);
-    }
-  }
-
-  /*
-   * The hand is empty. In a classic round that is the round; in "stairs" it is one
-   * step of it, and only the eighth step wins.
-   *
-   * The step is taken *here*, in the gap the win check used to occupy, because
-   * everything below this point assumes a settled hand — the shout, the sequence
-   * bookkeeping, the card's own effect. A redealt player carries on with the turn
-   * they were in the middle of: a Plus still buys them another card to play, a
-   * Taki still opens a sequence, a Stop still skips the next seat. That is the
-   * whole reason the redeal is not a separate command.
-   */
-  let redealt = false;
-  if ((draft.hands[playerId] ?? []).length === 0) {
-    // `null` in a classic round: there is no staircase to be a step of.
-    const step = draft.mode === 'stairs' ? (draft.stairs[playerId] ?? 0) + 1 : null;
-    if (step !== null) {
-      draft.stairs = { ...draft.stairs, [playerId]: step };
-    }
-    if (step !== null && step < STAIRS_STAGES) {
-      redealt = true;
-      /*
-       * The declaration goes with the card that was in the hand, and that card has
-       * just been played. A step down to a single card — the last one — therefore
-       * needs its own shout, or `syncDeclarations` would keep the old one alive for
-       * a card nobody has claimed and hand out a protection that was never earned.
-       */
-      draft.declaredLastCard = draft.declaredLastCard.filter((candidate) => candidate !== playerId);
-      const dealEvents: GameEvent[] = [];
-      const dealt = drawCards(draft, playerId, stairsHandSize(step), dealEvents);
-      events.push(
-        { type: 'stairsAdvanced', playerId, stage: step, dealt },
-        // `dealt` already says how many cards arrived, so the draw's own line would
-        // say it twice. What is kept is what the *pile* did, which is nobody's move.
-        ...dealEvents.filter((event) => event.type !== 'cardDrawn'),
-      );
-    } else {
-      draft.phase = 'finished';
-      draft.winnerId = playerId;
-      draft.endReason = 'won';
-      draft.takiMode = null;
-      draft.pendingPlus = false;
-      draft.pendingDraw = 0;
-      draft.plusThree = null;
-      events.push({ type: 'playerWon', playerId });
-      draft.version += 1;
-      return { ok: true, state: freeze(draft), events };
-    }
-  }
-
-  /*
-   * The shout, when it was made with the card rather than after it.
-   *
-   * Here and not earlier, because "the card left me on one" is only true once the
-   * hand is settled — a breaker's penalty has already been drawn above, and the
-   * win check above has already taken the case where nothing is left to declare.
-   * Nothing below this point adds to or removes from *this* player's hand, so the
-   * count cannot change again inside this command.
-   *
-   * A hand that arrived from a step of the staircase is not covered by it, and
-   * neither is the card a Plus took from the pile: the shout was armed about the
-   * card going down, not about whatever replaced it, and a player looking at a
-   * card they have only just drawn has a fresh declaration to make.
+   * The call, when it was made with the card rather than after it. Here, because
+   * "the card left me on one" is only true once the hand has settled, and nothing
+   * below this point adds to or removes from *this* player's hand.
    */
   if (
-    declareLastCard &&
-    !redealt &&
-    !refilledOnPlus &&
+    declareUno &&
     (draft.hands[playerId] ?? []).length === 1 &&
-    !draft.declaredLastCard.includes(playerId)
+    !draft.declaredUno.includes(playerId)
   ) {
-    draft.declaredLastCard.push(playerId);
-    events.push({ type: 'lastCardDeclared', playerId });
+    draft.declaredUno.push(playerId);
+    events.push({ type: 'unoDeclared', playerId });
   }
 
-  if (answeringPlusThree) {
-    resolvePlusThree(draft, playerId, events);
-  } else if (draft.takiMode) {
-    /*
-     * Inside a sequence: accumulate; effects are resolved when the Taki closes.
-     *
-     * The colour follows the run rather than the opening card, because a coloured
-     * Taki played onto a Taki carries it over — `resultingColor` is that card's
-     * own colour, and the validation above has already refused the move unless
-     * the run was still nothing but Takis. Everything else leaves the colour
-     * alone: an ordinary card had to match it to be here at all, and a Super Taki
-     * has no colour of its own, so `resultingColor` falls back to the one the run
-     * is already in.
-     */
-    const takisOnly = draft.takiMode.takisOnly && isTakiCard(card);
-    draft.takiMode = {
-      ...draft.takiMode,
-      color: resultingColor,
-      cardsPlayed: draft.takiMode.cardsPlayed + 1,
-      takisOnly,
-      // A sequence that has been carried into a coloured Taki's colour is no
-      // longer the Super Taki's, whatever opened it.
-      openedWithSuperTaki: draft.takiMode.openedWithSuperTaki && card.kind !== 'taki',
-    };
-  } else if (isTakiCard(card)) {
-    draft.takiMode = {
-      color: resultingColor,
-      playerId,
-      cardsPlayed: 1,
-      openedWithSuperTaki: card.kind === 'superTaki',
-      takisOnly: true,
-    };
-    events.push({
-      type: 'takiOpened',
-      playerId,
-      color: resultingColor,
-      superTaki: card.kind === 'superTaki',
-    });
-  } else if (refilledOnPlus) {
-    /*
-     * The card this Plus owed came from the pile, and a Plus paid from the pile
-     * ends the turn — which is what the obligation says on every other turn too.
-     * Calling `resolveCardEffect` here would hand its owner a free turn for
-     * having run out, and the drawn card back as a win.
-     */
-    advanceTurn(draft, events);
+  if (card.kind === 'wildDrawFour') {
+    openChallenge(draft, playerId, bluffed, events);
   } else {
-    resolveCardEffect(draft, card, events);
+    resolveCardEffect(draft, card, playerId, events);
+    finishIfEmpty(draft, playerId, events);
   }
 
-  draft.version += 1;
-  return { ok: true, state: freeze(draft), events };
-}
-
-/** Declines to answer an open +3; the last decline settles it. */
-function applyPassBreak(state: GameState, playerId: PlayerId): CommandResult {
-  const pending = state.plusThree;
-  if (!pending || !pending.awaiting.includes(playerId)) {
-    return reject('noPlusThreeOpen');
-  }
-
-  const draft = toDraft(state);
-  const events: GameEvent[] = [];
-  const awaiting = pending.awaiting.filter((candidate) => candidate !== playerId);
-  if (awaiting.length === 0) {
-    resolvePlusThree(draft, null, events);
-  } else {
-    draft.plusThree = { ...pending, awaiting };
-  }
-
+  settleUnoWindows(draft, handsBefore);
   draft.version += 1;
   return { ok: true, state: freeze(draft), events };
 }
 
 /**
- * Declares "last card".
+ * Takes the one card a turn costs, and leaves the turn open.
+ *
+ * This is UNO's draw rule and it is not Taki's: a turn with nothing to play is not
+ * over when you have drawn. You take exactly one card, and if it can be played you
+ * may play it — that card and nothing else — or end the turn. Drawing is also
+ * voluntary: a player holding a perfectly good card may draw anyway, and the rules
+ * have nothing to say about it.
+ */
+function applyDrawCard(state: GameState, playerId: PlayerId): CommandResult {
+  if (state.drawnCardId !== null) {
+    return reject('alreadyDrew');
+  }
+
+  const draft = toDraft(state);
+  const events: GameEvent[] = [];
+  const handsBefore = state.hands;
+
+  beginTurnAction(draft, playerId);
+  const drawn = drawCards(draft, playerId, 1, events);
+  // `null` when the pile had nothing left, which is what makes the pass below
+  // legal — a turn with no card to draw and none to play still has to end.
+  draft.drawnCardId = drawn[0]?.id ?? null;
+
+  settleUnoWindows(draft, handsBefore);
+  draft.version += 1;
+  return { ok: true, state: freeze(draft), events };
+}
+
+/**
+ * Ends a turn that has already been paid for.
+ *
+ * There is no free pass in UNO: you play or you draw. The one exception is a pile
+ * with nothing left in it, discard included — `drawCard` then takes nothing, and
+ * refusing the pass as well would leave the turn with no legal move at all and
+ * deadlock the table.
+ */
+function applyPassTurn(state: GameState, playerId: PlayerId): CommandResult {
+  const draft = toDraft(state);
+  if (state.drawnCardId === null && !pileExhausted(draft)) {
+    return reject('nothingToPass');
+  }
+  const events: GameEvent[] = [{ type: 'turnPassed', playerId }];
+  const handsBefore = state.hands;
+
+  beginTurnAction(draft, playerId);
+  advanceTurn(draft, events);
+  settleUnoWindows(draft, handsBefore);
+  draft.version += 1;
+  return { ok: true, state: freeze(draft), events };
+}
+
+function applyChallengeAnswer(state: GameState, playerId: PlayerId, challenged: boolean): CommandResult {
+  const pending = state.challenge;
+  if (!pending) {
+    return reject('noChallengeOpen');
+  }
+  if (pending.targetId !== playerId) {
+    return reject('notTheChallenger');
+  }
+
+  const draft = toDraft(state);
+  const events: GameEvent[] = [];
+  const handsBefore = state.hands;
+  resolveChallenge(draft, challenged, events);
+  settleUnoWindows(draft, handsBefore);
+  draft.version += 1;
+  return { ok: true, state: freeze(draft), events };
+}
+
+/**
+ * Calls "UNO!".
  *
  * Legal from any seat and at any moment, exactly as it is at a real table: the
- * declaration goes with the card in your hand, not with your turn. It is only
- * ever legal while the declaring player holds exactly one card, and only once
- * per card.
+ * call goes with the card in your hand, not with your turn. It is only ever legal
+ * while the calling player holds exactly one card, and only once per card.
  */
-function applyDeclareLastCard(state: GameState, playerId: PlayerId): CommandResult {
+function applyDeclareUno(state: GameState, playerId: PlayerId): CommandResult {
   if ((state.hands[playerId] ?? []).length !== 1) {
     return reject('nothingToDeclare');
   }
-  if (state.declaredLastCard.includes(playerId)) {
+  if (state.declaredUno.includes(playerId)) {
     return reject('alreadyDeclared');
   }
 
   const draft = toDraft(state);
-  draft.declaredLastCard.push(playerId);
+  draft.declaredUno.push(playerId);
+  // Safe now, and the window has nothing left to describe.
+  const cleared = { ...draft.unoExposed };
+  delete cleared[playerId];
+  draft.unoExposed = cleared;
   draft.version += 1;
-  return { ok: true, state: freeze(draft), events: [{ type: 'lastCardDeclared', playerId }] };
+  return { ok: true, state: freeze(draft), events: [{ type: 'unoDeclared', playerId }] };
 }
 
 /**
  * Catches a player sitting silently on a single card.
  *
- * The declaration is not what wins the round — putting the last card down is.
- * What silence costs is being caught: any other player may call it, in or out of
- * turn, for as long as the hand stays at one undeclared card. Drawing the penalty
- * ends the exposure by itself, since the hand is no longer a single card.
+ * The call is not what wins the round — putting the last card down is. What
+ * silence costs is being caught, and only inside the window the official rule
+ * gives you: before the next player begins their turn. After that the offender is
+ * safe, and that is the point of the rule rather than a limitation of it.
  */
-function applyCatchLastCard(state: GameState, playerId: PlayerId, targetId: PlayerId): CommandResult {
+function applyCatchUno(state: GameState, playerId: PlayerId, targetId: PlayerId): CommandResult {
   const target = state.players.find((player) => player.id === targetId);
   // A player who has left cannot be caught: their hand is frozen out of play, and
   // they are in no position to shout.
   if (!target || target.left === true || targetId === playerId) {
     return reject('nothingToCatch');
   }
-  if ((state.hands[targetId] ?? []).length !== 1 || state.declaredLastCard.includes(targetId)) {
+  if ((state.hands[targetId] ?? []).length !== 1 || state.declaredUno.includes(targetId)) {
+    return reject('nothingToCatch');
+  }
+  if (state.unoExposed[targetId] !== state.turnSeq) {
     return reject('nothingToCatch');
   }
 
   const draft = toDraft(state);
   const events: GameEvent[] = [];
-  const penaltyEvents: GameEvent[] = [];
-  const penalty = drawCards(draft, targetId, LAST_CARD_PENALTY, penaltyEvents);
-  events.push(
-    { type: 'lastCardCaught', playerId: targetId, caughtById: playerId, penalty },
-    ...penaltyEvents,
-  );
+  const drawn = drawCards(draft, targetId, UNO_PENALTY, events);
+  events.push({ type: 'unoCaught', playerId: targetId, caughtById: playerId, penalty: drawn.length });
 
-  draft.version += 1;
-  return { ok: true, state: freeze(draft), events };
-}
-
-function applyCloseTaki(state: GameState, playerId: PlayerId): CommandResult {
-  if (!state.takiMode || state.takiMode.playerId !== playerId) {
-    return reject('noTakiOpen');
-  }
-  const draft = toDraft(state);
-  const events: GameEvent[] = [];
-  const cardsPlayed = state.takiMode.cardsPlayed;
-  draft.takiMode = null;
-  events.push({ type: 'takiClosed', playerId, cardsPlayed });
-
-  const last = topCard(state);
-  if (last) {
-    resolveCardEffect(draft, last, events);
-  } else {
-    advanceTurn(draft, events);
-  }
+  const cleared = { ...draft.unoExposed };
+  delete cleared[targetId];
+  draft.unoExposed = cleared;
 
   draft.version += 1;
   return { ok: true, state: freeze(draft), events };
@@ -925,64 +739,33 @@ function applyCloseTaki(state: GameState, playerId: PlayerId): CommandResult {
 /**
  * Passes the turn of a player who is not there, at the price of the turn.
  *
- * This is its own transition rather than a `drawCard` issued on somebody's behalf,
- * and it has to be: the engine refuses to draw during an open Taki, so a skip built
- * out of `drawCard` would be rejected in exactly the state where a table is most
- * likely to be stuck. It also answers with its own rejection code, because the
- * caller is the room acting on a timer rather than a player taking a turn.
+ * Its own transition rather than a `drawCard` issued on somebody's behalf, because
+ * a draw no longer ends a turn: built out of `drawCard` this would leave the table
+ * waiting on the same absent seat to pass as well. It also answers with its own
+ * rejection code, because the caller is the room acting on a timer rather than a
+ * player taking a turn.
  *
- * The order below matters and each step re-reads the state the previous one left:
- *
- * 1. A Taki sequence the absent player owns is closed *properly*, through the
- *    real close transition, so the last card's effect is applied once and only
- *    once. Only a Plus leaves the turn with them afterwards; a number, Taki,
- *    Super Taki, Stop, Change Direction or +2 has already moved it on, and adding
- *    another advance here would skip an innocent player — two of them after a
- *    Stop. A colourless card cannot end a sequence, so those seven cases are
- *    exhaustive. A close is a move that was actually made, so nothing is charged
- *    for it; it is only what is left of the turn afterwards that is skipped.
- * 2. An outstanding +2 run is paid in full. It is an obligation somebody else
- *    created, and voiding it would either destroy cards or dump the run on the
- *    next seat, who did nothing to deserve it.
- * 3. Every other skip costs one card from the pile — the same card the same turn
- *    would have cost had they been there to take it. A free pass was the cheapest
- *    turn at the table: a hand that cannot grow cannot lose, so a seat that dropped
- *    out at the right moment came out ahead of one that played, and orbiting a
- *    disconnected player cost them nothing at all. Ending the turn by taking the
- *    pile is what the rules already say happens when nothing is played.
+ * A seat that had already drawn pays nothing further — it has taken its card, and
+ * charging a second would punish somebody for the moment their phone chose to die.
+ * Otherwise the skip costs the one card the turn would have cost had they been
+ * there to take it. A free pass was the cheapest turn at the table: a hand that
+ * cannot grow cannot lose, so a seat that dropped out at the right moment came out
+ * ahead of one that played.
  */
 function applySkipTurn(state: GameState, playerId: PlayerId): CommandResult {
   if (currentPlayer(state)?.id !== playerId) {
     return reject('nothingToSkip');
   }
 
-  // Step 1: close their sequence through the transition that already knows how.
-  if (state.takiMode !== null) {
-    const closed = applyCloseTaki(state, playerId);
-    if (!closed.ok) {
-      return closed;
-    }
-    // Still their turn only if the sequence ended on a Plus; otherwise done.
-    if (currentPlayer(closed.state)?.id !== playerId) {
-      return closed;
-    }
-    const after = applySkipTurn(closed.state, playerId);
-    return after.ok ? { ok: true, state: after.state, events: [...closed.events, ...after.events] } : closed;
-  }
-
   const draft = toDraft(state);
   const events: GameEvent[] = [];
+  const handsBefore = state.hands;
 
-  // The owed run when there is one, otherwise the single card any turn that plays
-  // nothing costs. `drew` can still come back short — the pile can run dry.
-  const owed = state.pendingDraw;
-  const drew = drawCards(draft, playerId, owed > 0 ? owed : 1, events);
-
-  draft.pendingDraw = 0;
-  draft.pendingPlus = false;
-  draft.freePlay = false;
-  events.push({ type: 'turnSkipped', playerId, drew });
+  beginTurnAction(draft, playerId);
+  const drew = state.drawnCardId !== null ? [] : drawCards(draft, playerId, 1, events);
+  events.push({ type: 'turnSkipped', playerId, drew: drew.length });
   advanceTurn(draft, events);
+  settleUnoWindows(draft, handsBefore);
   draft.version += 1;
   return { ok: true, state: freeze(draft), events };
 }
@@ -990,11 +773,11 @@ function applySkipTurn(state: GameState, playerId: PlayerId): CommandResult {
 /**
  * Marks a player as gone without disturbing the round.
  *
- * Everything they were holding up is released first — a sequence they owned, a
- * breaker window waiting on them, a declaration — because leaving those dangling
- * is what deadlocks a table permanently. Their cards stay frozen in their hand,
- * out of play: no reshuffle, no random numbers consumed, and the total number of
- * cards in the system is unchanged, which is the invariant the tests assert.
+ * Everything they were holding up is released first — a challenge window in either
+ * role, a call — because leaving those dangling is what deadlocks a table
+ * permanently. Their cards stay frozen in their hand, out of play: no reshuffle, no
+ * random numbers consumed, and the total number of cards in the system is
+ * unchanged, which is the invariant the tests assert.
  */
 function applyLeaveGame(state: GameState, playerId: PlayerId): CommandResult {
   const player = state.players.find((candidate) => candidate.id === playerId);
@@ -1007,67 +790,79 @@ function applyLeaveGame(state: GameState, playerId: PlayerId): CommandResult {
 
   const draft = toDraft(state);
   const events: GameEvent[] = [];
+  const handsBefore = state.hands;
   const wasCurrent = currentPlayer(state)?.id === playerId;
 
   draft.players = draft.players.map((candidate) =>
     candidate.id === playerId ? { ...candidate, left: true } : candidate,
   );
-  draft.declaredLastCard = draft.declaredLastCard.filter((candidate) => candidate !== playerId);
+  draft.declaredUno = draft.declaredUno.filter((candidate) => candidate !== playerId);
   events.push({ type: 'playerLeft', playerId });
 
-  // A sequence whose owner has gone can never be closed and can never be drawn
-  // out of, so it has to go with them.
-  if (draft.takiMode?.playerId === playerId) {
-    draft.takiMode = null;
-  }
-
-  if (draft.plusThree !== null) {
-    if (draft.plusThree.playerId === playerId) {
-      // The +3's author has left: cancel it outright rather than charging a table
-      // for a card nobody can now answer.
-      draft.plusThree = null;
-    } else {
-      const awaiting = draft.plusThree.awaiting.filter((candidate) => candidate !== playerId);
-      if (awaiting.length === 0) {
-        resolvePlusThree(draft, null, events);
-      } else {
-        draft.plusThree = { ...draft.plusThree, awaiting };
-      }
+  /*
+   * A challenge window naming a seat that has gone can never be answered, so it
+   * goes with them — in either role, and differently in each. Either branch moves
+   * the turn itself, which the pointer fix-up below must then not repeat.
+   */
+  let turnMoved = false;
+  if (draft.challenge !== null) {
+    if (draft.challenge.playerId === playerId) {
+      // The card's author has left. Cancel outright rather than charging somebody
+      // four cards for a bluff nobody can now call.
+      draft.challenge = null;
+      advanceTurn(draft, events);
+      turnMoved = true;
+    } else if (draft.challenge.targetId === playerId) {
+      // The victim has left. The window settles as if taken, minus the draw: their
+      // hand is frozen out of play, so there is nothing to add to.
+      const targetIndex = indexOfPlayer(draft, playerId);
+      const author = draft.challenge.playerId;
+      draft.challenge = null;
+      skipPast(draft, targetIndex, events);
+      finishIfEmpty(draft, author, events);
+      turnMoved = true;
     }
   }
 
   const remaining = draft.players.filter((candidate) => candidate.left !== true);
-  if (remaining.length < MIN_PLAYERS) {
-    // No winner. "Last player standing" would hand a two-player host the round
-    // for a twenty-second blip they themselves measured.
+  if (remaining.length < MIN_PLAYERS && draft.phase === 'playing') {
+    /*
+     * No winner. "Last player standing" would hand a two-player table the round for
+     * a twenty-second blip somebody else measured.
+     *
+     * Guarded on the round still being in play, because the departure above can
+     * legitimately have *ended* it: a player whose Wild Draw Four emptied their hand
+     * has won, and the victim walking away afterwards must not turn that win into an
+     * abandonment.
+     */
     draft.phase = 'finished';
     draft.winnerId = null;
     draft.endReason = 'abandoned';
-    draft.takiMode = null;
-    draft.plusThree = null;
-    draft.pendingDraw = 0;
-    draft.pendingPlus = false;
-    draft.freePlay = false;
+    draft.challenge = null;
+    draft.drawnCardId = null;
+    draft.unoExposed = {};
     events.push({ type: 'roundAbandoned' });
     draft.version += 1;
     return { ok: true, state: freeze(draft), events };
   }
 
   // The turn pointer must never rest on an empty seat.
-  if (wasCurrent && draft.plusThree === null) {
-    draft.pendingDraw = 0;
-    draft.pendingPlus = false;
-    draft.freePlay = false;
-    advanceTurn(draft, events);
-  } else if ((draft.players[draft.currentPlayerIndex] as EnginePlayer).left === true) {
-    draft.currentPlayerIndex = nextActiveIndex(draft, draft.currentPlayerIndex);
-    draft.turnSeq += 1;
-    events.push({
-      type: 'turnChanged',
-      playerId: (draft.players[draft.currentPlayerIndex] as EnginePlayer).id,
-    });
+  if (draft.phase === 'playing' && !turnMoved) {
+    if (wasCurrent) {
+      draft.drawnCardId = null;
+      advanceTurn(draft, events);
+    } else if ((draft.players[draft.currentPlayerIndex] as EnginePlayer).left === true) {
+      draft.currentPlayerIndex = nextActiveIndex(draft, draft.currentPlayerIndex);
+      draft.drawnCardId = null;
+      draft.turnSeq += 1;
+      events.push({
+        type: 'turnChanged',
+        playerId: (draft.players[draft.currentPlayerIndex] as EnginePlayer).id,
+      });
+    }
   }
 
+  settleUnoWindows(draft, handsBefore);
   draft.version += 1;
   return { ok: true, state: freeze(draft), events };
 }
@@ -1083,41 +878,186 @@ function applyAbandonRound(state: GameState): CommandResult {
   draft.phase = 'finished';
   draft.winnerId = null;
   draft.endReason = 'abandoned';
-  draft.takiMode = null;
-  draft.plusThree = null;
-  draft.pendingDraw = 0;
-  draft.pendingPlus = false;
-  draft.freePlay = false;
+  draft.challenge = null;
+  draft.drawnCardId = null;
+  draft.unoExposed = {};
   draft.version += 1;
   return { ok: true, state: freeze(draft), events: [{ type: 'roundAbandoned' }] };
 }
 
-function applyDrawCard(state: GameState, playerId: PlayerId): CommandResult {
-  if (state.takiMode) {
-    return reject('cannotDrawDuringTaki');
+/**
+ * Creates a fresh game.
+ *
+ * The opening card is the first non-wild card off the shuffled deck; wilds met on
+ * the way are buried at the bottom of the draw pile, so no card leaves the game and
+ * the count still comes to 108. The official rules do this for a Wild Draw Four
+ * — there is nobody yet to challenge it — and this build does it for a plain Wild
+ * too. That second half is a deviation, and it is a deliberate one: the official
+ * answer is that the first player names the colour, which would make the colour in
+ * play nullable everywhere it is currently a colour — the engine, the wire, the
+ * stored round, the styling — plus a command of its own and an answer for a first
+ * player who never arrives, all for four cards in a hundred and eight. It is a
+ * widely played variant and it is the procedure the rules already use for the other
+ * wild. See `docs/rules.md`.
+ *
+ * The opening card's effect then falls on the first player, exactly as it does at a
+ * table: a Skip costs them the turn, a Draw Two costs them two cards and the turn,
+ * and a Reverse turns the play round so that the dealer goes first instead.
+ *
+ * `initialVersion` lets a second round continue the version sequence of the first.
+ * Clients drop snapshots older than the newest one they applied, so a new round must
+ * never restart numbering.
+ *
+ * `mode` is fixed here and never again: a round is scored the way it was dealt.
+ *
+ * `assist` is fixed here for the same reason and does two things to this function,
+ * both after the shuffle and neither to the deck: which seat receives which of the
+ * hands just dealt, and which seat moves first. With no weight on any seat both are
+ * no-ops and the round is dealt exactly as it would have been. See `assist.ts`.
+ */
+export function createGame(
+  players: readonly EnginePlayer[],
+  seed: number,
+  initialVersion = 1,
+  startingSeat = 0,
+  mode: GameMode = 'classic',
+  assist: AssistWeights = NO_ASSIST,
+): CommandResult {
+  if (players.length < MIN_PLAYERS) {
+    return reject('notEnoughPlayers');
+  }
+  if (players.length > MAX_PLAYERS) {
+    return reject('tooManyPlayers');
+  }
+  const uniqueIds = new Set(players.map((player) => player.id));
+  if (uniqueIds.size !== players.length) {
+    return reject('duplicatePlayerId');
+  }
+
+  const shuffled = shuffle(buildDeck(), createRng(seed));
+  const rng = shuffled.state;
+  const pile = shuffled.items;
+
+  const dealt: Card[][] = players.map(() => []);
+  for (let round = 0; round < CARDS_DEALT_PER_PLAYER; round += 1) {
+    for (let seat = 0; seat < players.length; seat += 1) {
+      const card = pile.shift();
+      if (card) {
+        (dealt[seat] as Card[]).push(card);
+      }
+    }
   }
   /*
-   * A pending +2 run must be paid in full; otherwise the usual single card.
-   *
-   * A Plus obligation — and the free turn a King grants, which is the same flag —
-   * no longer forces a play. The card you owe after a Plus may be paid from the
-   * pile instead, exactly like any other turn, and drawing ends the turn as it
-   * always does. The old rule made the obligation the one place in the game where
-   * the pile was disabled while the player still held something legal, which is
-   * both a rule nobody at a real table enforces and the only screen where a lit
-   * draw pile could refuse a tap.
+   * Who gets which of the hands just dealt. A permutation of them and nothing more:
+   * the deck, the order it was shuffled in and what is left in `pile` are all
+   * untouched, which is what makes this method invisible rather than merely quiet.
    */
-  const owed = state.pendingDraw;
+  const assigned = assignHands(dealt, players, assist);
+  const hands: Record<PlayerId, Card[]> = {};
+  players.forEach((player, seat) => {
+    hands[player.id] = (assigned[seat] ?? []).slice();
+  });
 
-  const draft = toDraft(state);
+  const buried: Card[] = [];
+  let opening: Card | null = null;
+  while (pile.length > 0) {
+    const card = pile.shift() as Card;
+    if (!isWildCard(card)) {
+      opening = card;
+      break;
+    }
+    buried.push(card);
+  }
+  if (!opening || isWildCard(opening)) {
+    // Impossible with the documented deck — eight wilds cannot exhaust it — but
+    // keep the engine total.
+    return reject('notEnoughPlayers');
+  }
+
+  const drawPile = pile.concat(buried);
+  /*
+   * The seat that holds the lobby buttons keeps seat 0 for the life of the room, so
+   * a fixed starting index meant the same person opened every round, for ever. A
+   * table notices that by about the fifth round.
+   */
+  const rotated = ((startingSeat % players.length) + players.length) % players.length;
+  const firstIndex = biasedStartIndex(players, assist, startingSeat, rotated);
+
+  const draft: Draft = {
+    version: initialVersion,
+    phase: 'playing',
+    mode,
+    players,
+    assist,
+    hands,
+    drawPile,
+    discardPile: [opening],
+    activeColor: opening.color,
+    direction: 1,
+    currentPlayerIndex: firstIndex,
+    drawnCardId: null,
+    challenge: null,
+    declaredUno: [],
+    unoExposed: {},
+    points: {},
+    rng,
+    winnerId: null,
+    endReason: null,
+    turnSeq: 0,
+    seed,
+  };
+
+  /*
+   * The opening card's effect, applied without `advanceTurn`.
+   *
+   * The turn counter has to start at nought: clients gate a move on it and the
+   * catch window is measured in it, so an opening Skip that arrived through the
+   * ordinary turn machinery would start every such round one turn ahead of every
+   * other one. The seat is moved directly instead, and the single `turnChanged`
+   * below names wherever it ended up.
+   *
+   * The dealer is the seat before the one that would nominally open — play starts
+   * to the dealer's left — and it exists here only because a Reverse turned up at
+   * the start hands the first turn back to them.
+   */
   const events: GameEvent[] = [];
-  drawCards(draft, playerId, owed > 0 ? owed : 1, events);
-  draft.pendingDraw = 0;
-  draft.pendingPlus = false;
-  draft.freePlay = false;
-  advanceTurn(draft, events);
-  draft.version += 1;
-  return { ok: true, state: freeze(draft), events };
+  switch (opening.kind) {
+    case 'skip': {
+      events.push({ type: 'playerSkipped', playerId: (players[firstIndex] as EnginePlayer).id });
+      draft.currentPlayerIndex = nextActiveIndex(draft, firstIndex);
+      break;
+    }
+    case 'reverse': {
+      draft.direction = -1;
+      events.push({ type: 'directionChanged', direction: -1 });
+      // The dealer, reached by stepping backwards from the nominal opener — which
+      // in the direction now in play is simply the next seat.
+      draft.currentPlayerIndex = nextActiveIndex(draft, firstIndex);
+      break;
+    }
+    case 'drawTwo': {
+      const victimId = (players[firstIndex] as EnginePlayer).id;
+      drawCards(draft, victimId, DRAW_TWO_PENALTY, events);
+      events.push({ type: 'playerSkipped', playerId: victimId });
+      draft.currentPlayerIndex = nextActiveIndex(draft, firstIndex);
+      break;
+    }
+    case 'number':
+      // Nothing to do, and no wild cases to list: the walk above buries both, and
+      // the type of `opening` says so — a wild here would not compile.
+      break;
+  }
+
+  const opener = players[draft.currentPlayerIndex] as EnginePlayer;
+  return {
+    ok: true,
+    state: freeze(draft),
+    events: [
+      { type: 'gameStarted', firstPlayerId: opener.id, activeColor: draft.activeColor },
+      ...events,
+      { type: 'turnChanged', playerId: opener.id },
+    ],
+  };
 }
 
 /**
@@ -1144,41 +1084,42 @@ export function applyCommand(state: GameState, command: GameCommand): CommandRes
     return reject('alreadyLeft');
   }
 
-  // Declaring, and calling out somebody who did not, are shouts rather than
+  // Calling UNO, and calling out somebody who did not, are shouts rather than
   // moves: they belong to the cards in hand and are legal from any seat, whatever
   // else the table happens to be waiting for.
-  if (command.type === 'declareLastCard') {
-    return applyDeclareLastCard(state, command.playerId);
+  if (command.type === 'declareUno') {
+    return applyDeclareUno(state, command.playerId);
   }
-  if (command.type === 'catchLastCard') {
-    return applyCatchLastCard(state, command.playerId, command.targetId);
+  if (command.type === 'catchUno') {
+    return applyCatchUno(state, command.playerId, command.targetId);
   }
 
-  // While a +3 is waiting for an answer the table is frozen for everyone, and
-  // the only two moves are a breaker or a pass — from any seat, not just the
-  // one to move. That is the whole point of the card.
-  if (state.plusThree) {
+  // While a Wild Draw Four is waiting for an answer the table is frozen for
+  // everyone, and the only two moves are the target's.
+  if (state.challenge) {
     switch (command.type) {
-      case 'playCard':
-        return applyPlayCard(
-          state,
-          command.playerId,
-          command.cardId,
-          command.chosenColor,
-          command.declareLastCard === true,
-        );
-      case 'passBreak':
-        return applyPassBreak(state, command.playerId);
+      case 'acceptWildDrawFour':
+        return applyChallengeAnswer(state, command.playerId, false);
+      case 'challengeWildDrawFour':
+        return applyChallengeAnswer(state, command.playerId, true);
+      case 'skipTurn':
+        // The room's absence timer, answering for a seat that is not there. Taking
+        // the cards is the only honest default: a skip is free, but a penalty
+        // somebody else created is paid in full, or pulling the plug becomes the
+        // cheapest answer to a Wild Draw Four.
+        return state.challenge.targetId === command.playerId
+          ? applyChallengeAnswer(state, command.playerId, false)
+          : reject('nothingToSkip');
       default:
-        return reject('awaitingBreak');
+        return reject('awaitingChallenge');
     }
   }
-  if (command.type === 'passBreak') {
-    return reject('noPlusThreeOpen');
+  if (command.type === 'acceptWildDrawFour' || command.type === 'challengeWildDrawFour') {
+    return reject('noChallengeOpen');
   }
   /*
    * Skipping answers with its own code rather than the generic "not your turn",
-   * because the caller is the host acting on a timer and the distinction is what
+   * because the caller is the room acting on a timer and the distinction is what
    * the diagnostics log needs: being asked to skip the wrong seat is a bug in the
    * absence machinery, not a player mistake.
    */
@@ -1196,11 +1137,11 @@ export function applyCommand(state: GameState, command: GameCommand): CommandRes
         command.playerId,
         command.cardId,
         command.chosenColor,
-        command.declareLastCard === true,
+        command.declareUno === true,
       );
-    case 'closeTaki':
-      return applyCloseTaki(state, command.playerId);
     case 'drawCard':
       return applyDrawCard(state, command.playerId);
+    case 'passTurn':
+      return applyPassTurn(state, command.playerId);
   }
 }

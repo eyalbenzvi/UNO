@@ -108,25 +108,20 @@ export function assistedSeats(players: readonly EnginePlayer[], assist: AssistWe
  */
 const CARD_WORTH: Readonly<Record<Card['kind'], number>> = {
   number: 1,
-  direction: 2,
-  plus: 2,
+  reverse: 2,
+  skip: 3,
+  drawTwo: 4,
   /*
-   * A breaker is worth having and worth little: it answers exactly one card, and
-   * played at any other moment it costs its owner three. Above a number, below
-   * everything that can be spent on an ordinary turn.
+   * The two cards that are playable on anything, which is what makes them worth
+   * holding rather than what they do to anybody. A Wild Draw Four is worth more
+   * than a Wild by exactly the four cards it costs somebody else.
    */
-  breakPlusThree: 3,
-  stop: 3,
-  taki: 4,
-  plusTwo: 4,
-  superTaki: 5,
-  king: 5,
-  colorChange: 5,
-  plusThree: 6,
+  wild: 5,
+  wildDrawFour: 6,
 };
 
 function colorCounts(cards: readonly Card[]): Record<CardColor, number> {
-  const counts: Record<CardColor, number> = { red: 0, blue: 0, green: 0, yellow: 0 };
+  const counts: Record<CardColor, number> = { red: 0, yellow: 0, green: 0, blue: 0 };
   for (const card of cards) {
     const color = cardColor(card);
     if (color !== null) {
@@ -159,10 +154,16 @@ export function dominantColor(cards: readonly Card[], fallback: CardColor): Card
 /**
  * How good a hand is to be dealt.
  *
- * Two things make a Taki hand: what it can do to other people, and how much of it
- * is one colour. The first is the sum of the cards; the second is worth counting
- * twice over when the hand also holds the Taki that would spend the whole run in a
- * single turn, which is the play that wins rounds and the one a child remembers.
+ * Two things make an UNO hand: what it can do to other people, and how little it
+ * depends on the table's colour staying where it is. The first is the sum of the
+ * cards. The second is concentration — a hand that is mostly one colour plays two
+ * or three cards in a row when that colour comes round, where an evenly spread one
+ * is always a card away from having to draw.
+ *
+ * Concentration is counted as the longest colour rather than as a spread, because
+ * it is the run that matters and not the tidiness: seven cards in two colours is a
+ * better hand than seven in four, and a hand of one colour plus a wild to reach it
+ * with is the best of the lot.
  */
 export function handStrength(hand: readonly Card[]): number {
   let total = 0;
@@ -171,11 +172,7 @@ export function handStrength(hand: readonly Card[]): number {
   }
   const counts = colorCounts(hand);
   const leading = dominantColor(hand, CARD_COLORS[0]);
-  const longest = counts[leading];
-  total += longest;
-  if (hand.some((card) => card.kind === 'taki' && card.color === leading)) {
-    total += longest;
-  }
+  total += counts[leading];
   return total;
 }
 
@@ -254,18 +251,14 @@ export function drawWindow(weight: number): number {
  * What this card is worth to this hand, right now.
  *
  * A card you can put straight back down is worth more than a better card you
- * cannot, which is most of the mercy in this file: a child who draws and then plays
- * has had a turn, and a child who draws and passes has had a punishment.
- *
- * Playability is judged as if nothing were owed. During a +2 run only a +2 or a
- * King is legal, so asking the literal question would score every card the same and
- * throw the window away on exactly the turn — an eight-card run being paid — where
- * a good card matters most. What the seat needs then is a card for the turn *after*
- * the payment, and that is the question this asks.
+ * cannot, and in UNO that is not a nicety but the whole of the turn: a player who
+ * draws something playable has had a turn, and one who draws and passes has had a
+ * punishment. The rule that lets you play what you have just drawn is exactly what
+ * gives this its weight.
  */
 export function drawValue(card: Card, hand: readonly Card[], context: PlayContext): number {
   let value = CARD_WORTH[card.kind];
-  if (isCardPlayable(card, { ...context, pendingDraw: 0 })) {
+  if (isCardPlayable(card, context)) {
     value += 6;
   }
   const color = cardColor(card);
@@ -336,40 +329,20 @@ export function frontLoadForDraw(
   return [...ranked.map((index) => pile[index] as Card), ...pile.filter((_, index) => !lifted.has(index))];
 }
 
-/**
- * The colour the opening card should be, or `null` when nobody is marked.
+/*
+ * There is no opening-colour lever here, and its absence is deliberate.
  *
- * The heaviest marked seat's own colour, so the first turn of the round comes round
- * to a hand that has something to answer with. Worth almost nothing on its own and
- * costing almost nothing to have: the engine is already walking the pile looking for
- * a number card, and this only makes it fussier about which one it stops on.
- */
-export function preferredOpeningColor(
-  hands: Readonly<Record<PlayerId, readonly Card[]>>,
-  players: readonly EnginePlayer[],
-  assist: AssistWeights,
-): CardColor | null {
-  const favoured = assistedSeats(players, assist);
-  if (favoured.length === 0 || favoured.length >= players.length) {
-    return null;
-  }
-  const seat = players[favoured[0] as number] as EnginePlayer;
-  const hand = hands[seat.id] ?? [];
-  if (hand.length === 0) {
-    return null;
-  }
-  return dominantColor(hand, CARD_COLORS[0]);
-}
-
-/**
- * How far the engine will dig for an opening card of the preferred colour.
+ * The game this one is built from chose the opening card by walking the pile until
+ * it found a number card, which gave a marked seat a free preference about which
+ * one it stopped on. UNO's opening card is simply the top of the deck — only a wild
+ * is passed over, because there is nobody yet to challenge it — so there is no walk
+ * to be fussy inside, and a lever that dug for a colour would have to bury Skips and
+ * Reverses to find one. That would suppress the very openings the rules exist for,
+ * which is a bigger lie than the small favour is worth.
  *
- * Bounded because the alternative is not bounded: a preference with no budget would
- * bury a quarter of the deck on an unlucky pile, and every card it buried would be
- * one the table then draws in an order somebody chose. Past the budget the engine
- * takes the first number card it meets, exactly as it always did.
+ * Two deal-time levers remain: which of the dealt hands a marked seat receives, and
+ * which seat opens. See `docs/assist.md`.
  */
-export const OPENING_SCAN_LIMIT = 12;
 
 /**
  * Which seat opens the round.

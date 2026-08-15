@@ -15,14 +15,13 @@ export interface EnginePlayer {
    *
    * They are *marked*, never removed from `players`, and that is a deliberate
    * design decision rather than laziness. Splicing a seat out mid-round breaks
-   * five things at once: a Taki sequence they owned can never be closed and never
-   * be drawn out of, so the table deadlocks permanently; a `plusThree.awaiting`
-   * entry naming them can never empty, so every command from every seat is
-   * refused for the rest of the game; `currentPlayerIndex` silently points at the
-   * wrong player whenever the removed seat sat before it; the public state drops
-   * below the two players the wire schema requires, so the final broadcast is
-   * unparseable and nobody sees the round end; and the player vanishes from the
-   * standings of a round they may have been winning.
+   * four things at once: a challenge window naming them can never be answered, so
+   * every command from every seat is refused for the rest of the game;
+   * `currentPlayerIndex` silently points at the wrong player whenever the removed
+   * seat sat before it; the public state drops below the two players the wire
+   * schema requires, so the final broadcast is unparseable and nobody sees the
+   * round end; and the player vanishes from the standings of a round they may have
+   * been winning.
    *
    * Marking costs one flag and one condition inside `advanceTurn`. Card
    * conservation then holds by construction — their hand is simply frozen out of
@@ -31,104 +30,86 @@ export interface EnginePlayer {
   readonly left?: boolean;
 }
 
-/** State of an open Taki sequence. */
-export interface TakiModeState {
-  /** Colour the sequence is locked to. */
-  readonly color: CardColor;
-  /** Player who owns the sequence. */
-  readonly playerId: PlayerId;
-  /** Number of cards played since (and including) the opening card. */
-  readonly cardsPlayed: number;
-  /** Whether the sequence was opened by a Super Taki (wild) card. */
-  readonly openedWithSuperTaki: boolean;
-  /**
-   * Whether every card in the sequence so far is a Taki.
-   *
-   * This is what makes a change of colour legal: a Taki laid straight onto
-   * another Taki carries the sequence into its own colour, and it may do that
-   * only while nothing else has been played. The moment an ordinary card joins
-   * the run this goes false and the colour is settled for good — a further Taki
-   * of the sequence colour is then just another card in it, and cannot reopen
-   * the choice. See `docs/rules.md`.
-   */
-  readonly takisOnly: boolean;
-}
-
 /**
- * A +3 waiting to be answered.
+ * A Wild Draw Four waiting for its victim to answer.
  *
- * Anyone holding a +3 Breaker may play it out of turn to send the three cards
- * back at whoever played the +3. `awaiting` lists exactly those players, so a
- * table where nobody holds a breaker resolves the +3 without pausing. It never
- * leaves the host: the public state only says that a +3 is open, and a client
- * works out whether it may answer from its own hand.
+ * The card is playable as a bluff — see `isWildDrawFourHonest` — and the next
+ * player may either take the four cards or call the bluff. While this is set the
+ * whole table is frozen: the only moves are the target's two answers, and the two
+ * shouts that are legal at any moment.
  */
-export interface PlusThreeState {
-  /** Player who played the +3. */
+export interface ChallengeState {
+  /** Who played the Wild Draw Four. */
   readonly playerId: PlayerId;
-  /** Players who hold a +3 Breaker and have not answered yet. */
-  readonly awaiting: readonly PlayerId[];
+  /** The next active seat — the only seat that may answer, and the one drawing four. */
+  readonly targetId: PlayerId;
+  /**
+   * Whether the play was a bluff. The whole verdict, decided once, at play time.
+   *
+   * Precomputed rather than re-derived when the challenge is made, for two
+   * reasons. The obvious one is that the hand can change in between: the two
+   * shouts stay legal while the table is frozen, so a caught UNO can add two cards
+   * to the very hand a challenge would be judged against — and a player who
+   * bluffed should not be exonerated by being caught out, nor an honest one
+   * condemned by it.
+   *
+   * The other is what the alternative would cost. Snapshotting the hand instead
+   * would put a second copy of real cards inside the state: the conservation
+   * census would have to learn to ignore them, `views.ts` would gain a field that
+   * must be *remembered* to be excluded from every projection, and the stored
+   * round would carry the duplicate through every hibernation. A boolean has none
+   * of those properties and answers exactly the same question.
+   */
+  readonly bluffed: boolean;
 }
 
 export type GamePhase = 'playing' | 'finished';
 
 /**
- * How a round is won.
+ * How a match is won.
  *
- * `classic` is the game as it has always been: empty your hand and the round is
- * yours. `stairs` — "טאקי מדרגות" — makes emptying it a *step* rather than a win:
- * whoever runs out is dealt a fresh hand one card smaller than the last, eight
- * cards down to one, and the round is won by the player who empties the hand of
- * one. Everything else about the game is untouched; the mode changes only what
- * running out of cards means.
+ * `classic` is the short game: empty your hand and the round is yours, and the
+ * room counts rounds won. `points` is the official match — the winner of a round
+ * scores what everybody else is still holding, and the first player to 500 takes
+ * the game. See `docs/rules.md` for the scoring table.
  *
  * A property of the round rather than of the table, and it lives in `GameState`
  * for that reason: the mode a round was dealt under has to survive a hibernation
- * and reach every client, and a round already in play must not change its own
- * winning condition because somebody opened the room settings.
+ * and reach every client, and a round already in play must not change how it is
+ * scored because somebody opened the room settings.
  */
-export type GameMode = 'classic' | 'stairs';
+export type GameMode = 'classic' | 'points';
 
 /**
  * Why a round ended.
  *
  * `abandoned` exists because "the last player standing wins" is not a result. A
  * two-player table whose opponent's phone blinks for twenty seconds would hand the
- * round to whoever was left, and the host is the one measuring the blink. A round
- * that runs out of players has no winner, and says so.
+ * round to whoever was left. A round that runs out of players has no winner, and
+ * says so.
  */
 export type GameEndReason = 'won' | 'abandoned';
 
 /**
  * Complete authoritative game state. Serialisable, never mutated in place.
- * Only the host holds a full copy (it contains every hand).
+ * Only the room holds a full copy (it contains every hand).
  */
 export interface GameState {
   /** Monotonic version, incremented on every accepted command. */
   readonly version: number;
   readonly phase: GamePhase;
-  /** How this round is won. Fixed when the round is dealt; see {@link GameMode}. */
+  /** How this match is won. Fixed when the round is dealt; see {@link GameMode}. */
   readonly mode: GameMode;
-  /**
-   * How many hands each player has emptied, for "stairs".
-   *
-   * Keyed by player and counted from nought, so the next hand a player is dealt is
-   * `stairsHandSize(stairs[playerId])` and the round is won at
-   * {@link STAIRS_STAGES}. Present in both modes — a classic round simply leaves
-   * every entry at nought — because a mode-dependent field is one every reader has
-   * to remember to guard, and the standings, the wire and storage would each have
-   * to guard it separately.
-   */
-  readonly stairs: Readonly<Record<PlayerId, number>>;
   readonly players: readonly EnginePlayer[];
   /**
    * How far the deal and the draw pile lean towards each seat. See `assist.ts`.
    *
-   * A property of the *round*, exactly as `mode` is, and fixed by the same argument:
-   * a round is dealt the way it is dealt. The alternative — reading it out of the
-   * room on every command — would mean a hand dealt generously could be drawn into
-   * meanly halfway through, at the moment somebody happened to change a setting, and
-   * a replayed round would depend on something outside the state it replays from.
+   * A property of the *round*, exactly as `mode` is, and fixed by the same
+   * argument: a round is dealt the way it is dealt. The alternative — reading it
+   * out of the room on every command — would mean a hand dealt generously could be
+   * drawn into meanly halfway through, at the moment somebody happened to change a
+   * setting, and a replayed round would depend on something outside the state it
+   * replays from.
    *
    * Private information, and more sharply so than the hands beside it: a hand is
    * secret until it is played, this is secret for good. It has no projection in
@@ -146,32 +127,49 @@ export interface GameState {
   readonly activeColor: CardColor;
   readonly direction: TurnDirection;
   readonly currentPlayerIndex: number;
-  readonly takiMode: TakiModeState | null;
   /**
-   * Set after a Plus card resolves: the same player plays again.
+   * The card the player to move has just taken from the pile, or `null`.
    *
-   * An obligation, not a compulsion — they may pay it from the draw pile instead,
-   * whatever they are holding, and drawing ends the turn as it always does.
+   * This is the whole of UNO's draw rule. A turn with nothing playable is not
+   * over: you take one card, and if it can be played you may play it — that one
+   * and nothing else from your hand. While this is set the only moves its owner
+   * has are playing exactly this card or passing the turn.
+   *
+   * **Private.** The ids in this deck spell the card out (`n-red-5-0`), so
+   * publishing this would publish the card. What the table is told is that a card
+   * was drawn — `hasDrawn` in the public view — which is all anybody at a real
+   * table can see. See `views.ts`.
    */
-  readonly pendingPlus: boolean;
+  readonly drawnCardId: CardId | null;
+  /** Open Wild Draw Four waiting to be answered, or `null`. */
+  readonly challenge: ChallengeState | null;
   /**
-   * Cards the player to move must draw unless they answer with another +2 or a
-   * King. Grows by two for every +2 added to the run.
+   * Players who have called UNO for the single card they are holding now. A player
+   * leaves this list the moment their hand stops being exactly one card, so coming
+   * back down to one card needs a fresh call.
    */
-  readonly pendingDraw: number;
+  readonly declaredUno: readonly PlayerId[];
   /**
-   * Set by a King: the same player plays again and may play anything, whatever
-   * the leading colour or symbol is.
+   * Seats that can still be caught, and the turn on which they became catchable.
+   *
+   * The window the official rule gives you — "before the next player begins their
+   * turn" — made explicit. A seat is stamped when its hand reaches a single
+   * undeclared card, and the stamp is spent the moment the next player does
+   * anything at all. Without it the game is not UNO: a silent player would stay
+   * catchable for the rest of the round, which turns a two-second reflex into a
+   * standing bounty and makes calling UNO pointless, since there would be no
+   * moment at which staying quiet became safe.
    */
-  readonly freePlay: boolean;
-  /** Open +3 waiting for the breaker window to close, or `null`. */
-  readonly plusThree: PlusThreeState | null;
+  readonly unoExposed: Readonly<Record<PlayerId, number>>;
   /**
-   * Players who have declared "last card" for the single card they are holding
-   * now. A player leaves this list the moment their hand stops being exactly one
-   * card, so coming back down to one card needs a fresh declaration.
+   * What each player scored in the round that has just finished, in `points`.
+   *
+   * Written once, when a round ends, and empty until then. The running match total
+   * is the room's — it outlives a round, exactly as the rounds-won count does — and
+   * this is only the round's own arithmetic, so the standings screen can show the
+   * sum it was built from rather than a number that appeared from nowhere.
    */
-  readonly declaredLastCard: readonly PlayerId[];
+  readonly points: Readonly<Record<PlayerId, number>>;
   readonly rng: RngState;
   readonly winnerId: PlayerId | null;
   /** Why the round ended, or `null` while it is still running. */
@@ -179,10 +177,10 @@ export interface GameState {
   /**
    * Counts turn handovers, not commands.
    *
-   * `version` moves for everything, including the out-of-turn declarations and
-   * catches that are legal at any moment — which makes it useless as a way for a
-   * client to ask "is my move still meant for the table I was looking at?". This
-   * does answer that, because it changes only when the turn does.
+   * `version` moves for everything, including the out-of-turn calls and catches
+   * that are legal at any moment — which makes it useless as a way for a client to
+   * ask "is my move still meant for the table I was looking at?". This does answer
+   * that, because it changes only when the turn does.
    */
   readonly turnSeq: number;
   /** Seed the game was created with, kept for reproducibility/debugging. */
@@ -197,45 +195,57 @@ export type GameCommand =
       /** Required for wild cards, forbidden otherwise. */
       readonly chosenColor?: CardColor;
       /**
-       * Shouts "last card" as the card goes down, in the same move.
+       * Calls "UNO!" as the card goes down, in the same move.
        *
        * At a table the two are one gesture, and the separate button only exists
        * because a screen cannot hear you. That is fine when the play is a single
        * tap — the button is there the moment the hand is — but a card that asks
        * for a colour first puts a dialog between the two, and the head start is
-       * spent choosing rather than reaching. So the choice carries the shout.
+       * spent choosing rather than reaching. So the choice carries the call.
        *
        * Ignored unless the play actually leaves exactly one card in hand, which
        * makes it safe to set optimistically: a play that wins the round, or one
        * that draws a penalty on the way, simply does not declare.
        */
-      readonly declareLastCard?: boolean;
+      readonly declareUno?: boolean;
     }
+  /** Takes the one card a turn with nothing to play costs. Does not end the turn. */
   | { readonly type: 'drawCard'; readonly playerId: PlayerId }
-  | { readonly type: 'closeTaki'; readonly playerId: PlayerId }
-  /** Declines to answer an open +3 with a +3 Breaker. */
-  | { readonly type: 'passBreak'; readonly playerId: PlayerId }
   /**
-   * Declares "last card". Legal from any seat, in or out of turn, and only while
-   * the declaring player holds exactly one card.
+   * Ends a turn after drawing.
+   *
+   * Only legal once a card has been drawn — there is no free pass in UNO, you play
+   * or you draw. The one exception is a pile with nothing left in it, discard
+   * included: `drawCard` then takes nothing, and refusing the pass as well would
+   * leave the turn with no legal move at all.
    */
-  | { readonly type: 'declareLastCard'; readonly playerId: PlayerId }
+  | { readonly type: 'passTurn'; readonly playerId: PlayerId }
+  /** Takes the four cards rather than calling the bluff. */
+  | { readonly type: 'acceptWildDrawFour'; readonly playerId: PlayerId }
+  /** Calls the bluff: the player shows whether they held the colour. */
+  | { readonly type: 'challengeWildDrawFour'; readonly playerId: PlayerId }
   /**
-   * Catches `targetId` holding a single card they never declared. Legal from any
-   * seat but their own, in or out of turn, for as long as they stay silent.
+   * Calls "UNO!". Legal from any seat, in or out of turn, and only while the
+   * calling player holds exactly one card.
    */
-  | { readonly type: 'catchLastCard'; readonly playerId: PlayerId; readonly targetId: PlayerId }
+  | { readonly type: 'declareUno'; readonly playerId: PlayerId }
+  /**
+   * Catches `targetId` sitting on a single card they never called. Legal from any
+   * seat but their own, in or out of turn, and only inside the window — see
+   * {@link GameState.unoExposed}.
+   */
+  | { readonly type: 'catchUno'; readonly playerId: PlayerId; readonly targetId: PlayerId }
   /**
    * Passes the turn of a player who is not there.
    *
-   * Host-only: it is deliberately absent from the wire protocol, because a client
+   * Room-only: it is deliberately absent from the wire protocol, because a client
    * that could ask for it could skip anybody. See `docs/rules.md` for the full
-   * rule table — the short version is that a skip is *free*. A disconnect is not a
-   * decision, and charging a card for it would leave a returning player several
-   * cards down after a seat had been faithfully held for them, which would make
-   * the whole promise of holding it theatre. The one thing that does not
-   * evaporate is a penalty somebody *else* created: an outstanding +2 run is paid
-   * in full, or pulling the plug becomes the cheapest answer to an eight-card run.
+   * rule table — the short version is that a skip costs the one card the turn
+   * itself would have cost, and no more. A disconnect is not a decision, and
+   * charging more than the turn's own price would leave a returning player several
+   * cards down after a seat had been faithfully held for them, which would make the
+   * whole promise of holding it theatre. A seat that had already drawn pays
+   * nothing further: it has taken its card.
    */
   | { readonly type: 'skipTurn'; readonly playerId: PlayerId }
   /** Marks a player as having left for good, without disturbing the round. */
@@ -244,9 +254,7 @@ export type GameCommand =
    * Ends the round with no winner, by agreement of the table.
    *
    * This is what a real table does when somebody has to leave: you stop, and
-   * nobody pretends the interrupted hand produced a champion. Having it removes
-   * most of the reason to attempt an automatic host takeover, which cannot be made
-   * safe in a topology with no authority.
+   * nobody pretends the interrupted hand produced a champion.
    */
   | { readonly type: 'abandonRound'; readonly playerId: PlayerId };
 
@@ -261,75 +269,44 @@ export type GameEvent =
       readonly resultingColor: CardColor;
     }
   | { readonly type: 'cardDrawn'; readonly playerId: PlayerId; readonly count: number }
-  | {
-      readonly type: 'takiOpened';
-      readonly playerId: PlayerId;
-      readonly color: CardColor;
-      readonly superTaki: boolean;
-    }
-  | { readonly type: 'takiClosed'; readonly playerId: PlayerId; readonly cardsPlayed: number }
-  /** A Taki played on a Taki carried the open sequence into a new colour. */
+  /** A turn ended on the card that was drawn, without playing it. */
+  | { readonly type: 'turnPassed'; readonly playerId: PlayerId }
   | { readonly type: 'colorChosen'; readonly playerId: PlayerId; readonly color: CardColor }
   | { readonly type: 'playerSkipped'; readonly playerId: PlayerId }
-  /** A +2 was added to the run; `total` is what the next player now owes. */
-  | { readonly type: 'drawStacked'; readonly playerId: PlayerId; readonly total: number }
+  /** A Wild Draw Four was played and is waiting for its victim to answer. */
+  | { readonly type: 'challengeOpened'; readonly playerId: PlayerId; readonly targetId: PlayerId }
+  /** The victim took the four cards without calling the bluff. */
+  | { readonly type: 'challengeDeclined'; readonly playerId: PlayerId; readonly drawn: number }
   /**
-   * A King wiped an open +2 run. `cancelled` is how many cards `playerId` was
-   * owing and no longer draws — the number is the whole point of the line, so it
-   * travels with the event rather than being read back off a state that has
-   * already been cleared.
+   * The bluff was called. `bluffed` is the verdict and `drawn` is what the loser
+   * actually took — the player who bluffed draws four, and a challenger who was
+   * wrong draws six.
    */
-  | { readonly type: 'drawRunCancelled'; readonly playerId: PlayerId; readonly cancelled: number }
-  /** A +3 was played and is waiting for a possible breaker. */
-  | { readonly type: 'plusThreePlayed'; readonly playerId: PlayerId }
-  /** A +3 Breaker sent the penalty back at `targetId`. */
-  | { readonly type: 'plusThreeBroken'; readonly playerId: PlayerId; readonly targetId: PlayerId }
-  /** A player declared "last card" while holding their final card. */
-  | { readonly type: 'lastCardDeclared'; readonly playerId: PlayerId }
+  | {
+      readonly type: 'challengeResolved';
+      readonly challengerId: PlayerId;
+      readonly targetId: PlayerId;
+      readonly bluffed: boolean;
+      readonly drawn: number;
+    }
+  | { readonly type: 'unoDeclared'; readonly playerId: PlayerId }
   /**
    * `caughtById` caught `playerId` sitting silently on a single card. `penalty`
    * is how many cards they actually drew.
    */
   | {
-      readonly type: 'lastCardCaught';
+      readonly type: 'unoCaught';
       readonly playerId: PlayerId;
       readonly caughtById: PlayerId;
       readonly penalty: number;
     }
-  /**
-   * A +3 Breaker was played with no +3 to break, so it cost its owner the three
-   * cards instead. `penalty` is how many they actually drew.
-   */
-  | { readonly type: 'breakerSpent'; readonly playerId: PlayerId; readonly penalty: number }
-  /**
-   * A Plus emptied its owner's hand, so they took the card it owed from the pile
-   * instead of winning. Its own line because the table has just watched somebody
-   * put their last card down and *not* win the round, and the draw that follows
-   * does not say why on its own.
-   */
-  | { readonly type: 'plusRefilled'; readonly playerId: PlayerId }
   | { readonly type: 'directionChanged'; readonly direction: TurnDirection }
-  | { readonly type: 'extraTurn'; readonly playerId: PlayerId }
   | { readonly type: 'turnChanged'; readonly playerId: PlayerId }
   | { readonly type: 'drawPileRecycled'; readonly count: number }
   | { readonly type: 'drawPileExhausted' }
   | { readonly type: 'playerWon'; readonly playerId: PlayerId }
-  /**
-   * A player emptied their hand in "stairs" and came straight back with a smaller
-   * one. `stage` is how many hands they have now finished, out of
-   * {@link STAIRS_STAGES}, and `dealt` is how many cards they actually received —
-   * which is the same as the next step's size unless the pile had nothing left.
-   *
-   * It carries both numbers rather than letting the log read them off the state,
-   * because by the time a line is rendered the table has moved on, and "Dana
-   * finished her fifth hand" is the whole content of the moment.
-   */
-  | {
-      readonly type: 'stairsAdvanced';
-      readonly playerId: PlayerId;
-      readonly stage: number;
-      readonly dealt: number;
-    }
+  /** What the winner scored from everybody else's hands, in a points round. */
+  | { readonly type: 'roundScored'; readonly playerId: PlayerId; readonly points: number }
   /** A turn was passed for somebody who was not there. `drew` is what they owed. */
   | { readonly type: 'turnSkipped'; readonly playerId: PlayerId; readonly drew: number }
   | { readonly type: 'playerLeft'; readonly playerId: PlayerId }
@@ -338,7 +315,17 @@ export type GameEvent =
 
 export type GameEventType = GameEvent['type'];
 
-/** Machine-readable rejection codes; the UI maps them to localised strings. */
+/**
+ * Machine-readable rejection codes; the UI maps them to localised strings.
+ *
+ * Every code here is one this engine can actually emit. The game this one is
+ * built from kept retired codes in the vocabulary so that an older host on a
+ * mixed table could still be understood — an argument that belonged to a
+ * peer-to-peer topology with two browsers on either side of a version gate. Here
+ * there is one deployed room, every client talks only to it, and the protocol is
+ * at version 1: there is no older anything. A code nobody emits would be dead
+ * weight that both dictionaries would still have to carry a translation for.
+ */
 export const REJECTION_CODES = [
   'gameFinished',
   'unknownPlayer',
@@ -347,22 +334,18 @@ export const REJECTION_CODES = [
   'illegalCard',
   'colorRequired',
   'colorNotAllowed',
-  /**
-   * Retired: a Plus obligation may now be paid from the draw pile.
-   *
-   * The engine never emits it any more, and the code stays in the vocabulary
-   * because an older host on a mixed table still does — removing a value from the
-   * enum would fail that message's schema and lock the receiving player's table
-   * rather than tell them a rule they no longer have to follow.
-   */
-  'mustPlayAfterPlus',
-  'mustAnswerDraw',
-  'awaitingBreak',
-  'noPlusThreeOpen',
-  'cannotDrawDuringTaki',
-  'noTakiOpen',
-  'wildNotAllowedInTaki',
-  'wrongTakiColor',
+  /** Played something other than the card just drawn. See {@link GameState.drawnCardId}. */
+  'onlyDrawnCardPlayable',
+  /** Asked for a second card in one turn. */
+  'alreadyDrew',
+  /** Asked to end a turn without having drawn, and with cards left to draw. */
+  'nothingToPass',
+  /** The table is frozen while a Wild Draw Four waits to be answered. */
+  'awaitingChallenge',
+  /** Answered a challenge when none is open. */
+  'noChallengeOpen',
+  /** Answered a challenge addressed to somebody else. */
+  'notTheChallenger',
   'nothingToDeclare',
   'alreadyDeclared',
   'nothingToCatch',
@@ -388,4 +371,13 @@ export type CommandResult =
   | { readonly ok: false; readonly rejection: CommandRejection };
 
 export const MIN_PLAYERS = 2;
+
+/**
+ * Six, where the official game says ten.
+ *
+ * A product limitation rather than a rule: the seat geometry, the table layout and
+ * its 320-pixel regression tests are built for six chairs, and ten would be an
+ * interface project rather than a change to the rules. Stated plainly in
+ * `docs/rules.md` rather than left for somebody to discover.
+ */
 export const MAX_PLAYERS = 6;

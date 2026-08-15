@@ -14,7 +14,7 @@ import type { Card } from '../engine/cards.ts';
 import { REJECTION_CODES } from '../engine/state.ts';
 
 /**
- * Wire protocol for Super Taki.
+ * Wire protocol for UNO.
  *
  * Every message is validated at runtime before it can influence any state.
  * See `docs/protocol.md` for the human-readable specification.
@@ -23,60 +23,35 @@ import { REJECTION_CODES } from '../engine/state.ts';
 /**
  * Bumped on any breaking change to message shapes or semantics.
  *
- * 3 — the plain number 2 left the deck; "last card" became a declaration anyone
- * can call out; Taki on Taki changes the colour of an open sequence; and a +3
- * Breaker with nothing to break is a legal, expensive card.
- *
- * 4 — resilience: acknowledged actions, seats that can be absent or gone, host
- * restarts and handover, table pauses.
- *
- * 5 — a King answers an open +2 run and cancels it, with a `drawRunCancelled`
- * event to say so. A rule, not a field: two peers on different sides of this
- * disagree about which cards are legal, which is exactly what the version gate
- * exists to catch.
- *
- * 6 — the room is the authority. There is no host peer to address, no host
- * generation to follow and no room to hand over, so `hostPeerId`, `generation`,
- * `handoffOffer` and `handoffAccepted` are gone; `hostClosed` becomes
- * `roomClosed`; `hostPlayerId` becomes `creatorPlayerId`, which names the seat
- * with the lobby buttons rather than the device running the game. The powers that
- * used to be method calls on a local object travel as `roomCommand`. Seat health
- * is what the runtime reports about a socket, so `'unstable'` — the state that
- * meant "we are inferring and unsure" — has nothing left to describe.
- *
- * 7 — a round has a *mode*. In `stairs` an empty hand is a step rather than a win,
- * so two peers on either side of this disagree about the single most important
- * thing at a table: whether the round is over. A stale tab would announce a winner
- * and then watch the game carry on without it, which is precisely what the gate
- * exists to prevent. The running score a room keeps across rounds rides along with
- * it.
+ * 1 — the first version of this game. It carries none of the history of the game
+ * it was built from: that numbering described a different deck, a different set of
+ * rules and a different set of messages, and continuing it would have implied a
+ * compatibility that does not exist. No client has ever spoken an earlier version
+ * of *this* protocol, because there is no earlier version.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 1;
 
 /**
  * Versions this build will *accept*, as opposed to the one it sends.
  *
- * A single entry, and now permanently so. This list used to hold two, because
- * both sides of a table were browsers: the site is static and cached per browser,
- * so a player who reloaded fetched the new bundle while everybody else kept the
- * old one, and an exact-match gate would have ended the game on the reload the
- * resilience work existed to make survivable.
- *
- * That problem belonged to the topology. The room is one deployed worker, every
- * client talks only to it, and a stale tab meets a server that is always the
- * newer of the two — so the honest answer is "reload", which is exactly what the
- * gate says. Mixed-version tables are not a thing to be compatible with any more.
+ * A single entry, and permanently so. The room is one deployed worker, every
+ * client talks only to it, and a stale tab meets a server that is always the newer
+ * of the two — so the honest answer is "reload", which is exactly what the gate
+ * says. Mixed-version tables are not a thing to be compatible with.
  */
 export const SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [PROTOCOL_VERSION];
 
 /** Hard cap on a single decoded message, to bound memory from a hostile peer. */
 export const MAX_MESSAGE_BYTES = 64 * 1024;
 
-const colorSchema = z.enum(['red', 'blue', 'green', 'yellow']);
+const colorSchema = z.enum(['red', 'yellow', 'green', 'blue']);
 const cardIdSchema = z.string().min(1).max(40);
-// No plain 2: the only 2 in the deck is the +2. See `NUMBER_VALUES`.
+// Nought through nine. The nought is printed once per colour and the rest twice,
+// which is a fact about the deck rather than about this union.
 const numberValueSchema = z.union([
+  z.literal(0),
   z.literal(1),
+  z.literal(2),
   z.literal(3),
   z.literal(4),
   z.literal(5),
@@ -88,16 +63,11 @@ const numberValueSchema = z.union([
 
 export const cardSchema = z.discriminatedUnion('kind', [
   z.object({ id: cardIdSchema, kind: z.literal('number'), color: colorSchema, value: numberValueSchema }),
-  z.object({ id: cardIdSchema, kind: z.literal('stop'), color: colorSchema }),
-  z.object({ id: cardIdSchema, kind: z.literal('plus'), color: colorSchema }),
-  z.object({ id: cardIdSchema, kind: z.literal('plusTwo'), color: colorSchema }),
-  z.object({ id: cardIdSchema, kind: z.literal('direction'), color: colorSchema }),
-  z.object({ id: cardIdSchema, kind: z.literal('taki'), color: colorSchema }),
-  z.object({ id: cardIdSchema, kind: z.literal('colorChange') }),
-  z.object({ id: cardIdSchema, kind: z.literal('superTaki') }),
-  z.object({ id: cardIdSchema, kind: z.literal('king') }),
-  z.object({ id: cardIdSchema, kind: z.literal('plusThree') }),
-  z.object({ id: cardIdSchema, kind: z.literal('breakPlusThree') }),
+  z.object({ id: cardIdSchema, kind: z.literal('skip'), color: colorSchema }),
+  z.object({ id: cardIdSchema, kind: z.literal('reverse'), color: colorSchema }),
+  z.object({ id: cardIdSchema, kind: z.literal('drawTwo'), color: colorSchema }),
+  z.object({ id: cardIdSchema, kind: z.literal('wild') }),
+  z.object({ id: cardIdSchema, kind: z.literal('wildDrawFour') }),
 ]);
 
 // Compile-time proof that the schema and the engine model cannot drift apart.
@@ -110,17 +80,15 @@ const resumeTokenSchema = z.string().min(8).max(64);
 const directionSchema = z.union([z.literal(1), z.literal(-1)]);
 const rejectionCodeSchema = z.enum(REJECTION_CODES);
 /**
- * How a round is won: the ordinary game, or the staircase.
+ * How a match is won: the short game, or the official 500-point one.
  *
- * Optional wherever it appears on the wire, and absent always means `classic` —
- * the game as it was before the modes existed. That is what keeps a snapshot
- * written by an older room readable, and it is the safe reading either way: a
- * client that assumes the staircase where there is none would refuse to believe a
- * round had been won.
+ * Optional wherever it appears on the wire, and absent means `classic` — the
+ * shorter game, and the safe reading either way: a client that assumed a scored
+ * match where there is none would wait for a total that never arrives.
  */
-const gameModeSchema = z.enum(['classic', 'stairs']);
-/** Hands emptied so far, out of the eight a staircase has. */
-const stairsStepSchema = z.number().int().min(0).max(8);
+const gameModeSchema = z.enum(['classic', 'points']);
+/** What one seat scored in one round. A whole table's hands cannot exceed this. */
+const roundPointsSchema = z.number().int().min(0).max(2000);
 
 const assistLevelSchema = z.enum(ASSIST_LEVELS);
 
@@ -145,20 +113,6 @@ export const assistSettingsSchema = z.object({
 });
 export type AssistSettings = z.infer<typeof assistSettingsSchema>;
 
-export const takiModeSchema = z.object({
-  color: colorSchema,
-  playerId: playerIdSchema,
-  cardsPlayed: z.number().int().min(1).max(200),
-  openedWithSuperTaki: z.boolean(),
-  /*
-   * Defaulted rather than required, because a table can be mid-sequence when a
-   * new room ships. `false` is the safe reading of a snapshot that predates the
-   * field: it refuses a colour change the sequence might have allowed, where
-   * `true` would offer one it might not.
-   */
-  takisOnly: z.boolean().default(false),
-});
-
 export const publicGameStateSchema = z.object({
   version: z.number().int().nonnegative(),
   /**
@@ -177,12 +131,12 @@ export const publicGameStateSchema = z.object({
         name: displayNameSchema,
         cardCount: z.number().int().min(0).max(200),
         /**
-         * How many hands this seat has emptied, in a stairs round.
+         * What this seat scored in the round that has just ended.
          *
-         * Absent in a classic round rather than nought, so a screen cannot draw a
-         * staircase for a table that is not playing one.
+         * Absent until a points round is over, so no screen can draw a scoreboard
+         * for a table that is not keeping one.
          */
-        stairsStep: stairsStepSchema.optional(),
+        roundPoints: roundPointsSchema.optional(),
         /**
          * True for a seat that has left the round for good.
          *
@@ -203,12 +157,15 @@ export const publicGameStateSchema = z.object({
   activeColor: colorSchema,
   direction: directionSchema,
   currentPlayerId: playerIdSchema.nullable(),
-  takiMode: takiModeSchema.nullable(),
-  pendingPlus: z.boolean(),
-  pendingDraw: z.number().int().min(0).max(200),
-  freePlay: z.boolean(),
-  plusThree: z.object({ playerId: playerIdSchema }).nullable(),
-  declaredLastCard: z.array(playerIdSchema).max(6).readonly(),
+  /**
+   * Whether the player to move has already taken their card this turn. A boolean
+   * and never the card's id — the ids in this deck name the card.
+   */
+  hasDrawn: z.boolean(),
+  challenge: z.object({ playerId: playerIdSchema, targetId: playerIdSchema }).nullable(),
+  declaredUno: z.array(playerIdSchema).max(6).readonly(),
+  /** Seats that can be caught right now, with the window already resolved. */
+  catchableUno: z.array(playerIdSchema).max(6).readonly(),
   winnerId: playerIdSchema.nullable(),
 });
 
@@ -216,6 +173,13 @@ export const privateHandSchema = z.object({
   version: z.number().int().nonnegative(),
   playerId: playerIdSchema,
   cards: z.array(cardSchema).max(200).readonly(),
+  /**
+   * The card this seat has just drawn, when it is their turn and they have.
+   *
+   * Here rather than in the public table because the id names the card, and this
+   * message is the only one that goes to a single seat.
+   */
+  drawnCardId: cardIdSchema.optional(),
 });
 
 export const gameEventSchema = z.discriminatedUnion('type', [
@@ -231,60 +195,47 @@ export const gameEventSchema = z.discriminatedUnion('type', [
     playerId: playerIdSchema,
     count: z.number().int().min(1).max(200),
   }),
-  z.object({
-    type: z.literal('takiOpened'),
-    playerId: playerIdSchema,
-    color: colorSchema,
-    superTaki: z.boolean(),
-  }),
-  z.object({
-    type: z.literal('takiClosed'),
-    playerId: playerIdSchema,
-    cardsPlayed: z.number().int().min(1).max(200),
-  }),
+  z.object({ type: z.literal('turnPassed'), playerId: playerIdSchema }),
   z.object({ type: z.literal('colorChosen'), playerId: playerIdSchema, color: colorSchema }),
   z.object({ type: z.literal('playerSkipped'), playerId: playerIdSchema }),
   z.object({
-    type: z.literal('drawStacked'),
-    playerId: playerIdSchema,
-    total: z.number().int().min(2).max(200),
-  }),
-  z.object({
-    type: z.literal('drawRunCancelled'),
-    playerId: playerIdSchema,
-    cancelled: z.number().int().min(2).max(200),
-  }),
-  z.object({ type: z.literal('plusThreePlayed'), playerId: playerIdSchema }),
-  z.object({
-    type: z.literal('plusThreeBroken'),
+    type: z.literal('challengeOpened'),
     playerId: playerIdSchema,
     targetId: playerIdSchema,
   }),
-  z.object({ type: z.literal('lastCardDeclared'), playerId: playerIdSchema }),
   z.object({
-    type: z.literal('lastCardCaught'),
+    type: z.literal('challengeDeclined'),
+    playerId: playerIdSchema,
+    drawn: z.number().int().min(0).max(200),
+  }),
+  z.object({
+    type: z.literal('challengeResolved'),
+    challengerId: playerIdSchema,
+    targetId: playerIdSchema,
+    /*
+     * The verdict travels; the hand it was reached from does not. A table is told
+     * that somebody bluffed, which is what a table would see — and nothing about
+     * what else they were holding, which it would not.
+     */
+    bluffed: z.boolean(),
+    drawn: z.number().int().min(0).max(200),
+  }),
+  z.object({ type: z.literal('unoDeclared'), playerId: playerIdSchema }),
+  z.object({
+    type: z.literal('unoCaught'),
     playerId: playerIdSchema,
     caughtById: playerIdSchema,
     penalty: z.number().int().min(0).max(200),
   }),
-  z.object({
-    type: z.literal('breakerSpent'),
-    playerId: playerIdSchema,
-    penalty: z.number().int().min(0).max(200),
-  }),
-  z.object({ type: z.literal('plusRefilled'), playerId: playerIdSchema }),
   z.object({ type: z.literal('directionChanged'), direction: directionSchema }),
-  z.object({ type: z.literal('extraTurn'), playerId: playerIdSchema }),
   z.object({ type: z.literal('turnChanged'), playerId: playerIdSchema }),
   z.object({ type: z.literal('drawPileRecycled'), count: z.number().int().min(0).max(200) }),
   z.object({ type: z.literal('drawPileExhausted') }),
   z.object({ type: z.literal('playerWon'), playerId: playerIdSchema }),
   z.object({
-    type: z.literal('stairsAdvanced'),
+    type: z.literal('roundScored'),
     playerId: playerIdSchema,
-    /** The step just finished, so never nought and never the eighth — that is a win. */
-    stage: z.number().int().min(1).max(7),
-    dealt: z.number().int().min(0).max(8),
+    points: roundPointsSchema,
   }),
   z.object({
     type: z.literal('turnSkipped'),
@@ -416,21 +367,41 @@ export const gameActionSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('playCard'),
     cardId: cardIdSchema,
+    /** Required for both wilds, refused for everything else. */
     chosenColor: colorSchema.optional(),
     /*
-     * "Last card!" shouted with the card rather than after it. Optional, so an
-     * older client that never sends it is unchanged, and honoured by the engine
-     * only when the play really does leave one card in hand.
+     * "UNO!" called with the card rather than after it. Honoured by the engine only
+     * when the play really does leave one card in hand, which is what makes it safe
+     * to send optimistically.
      */
-    declareLastCard: z.boolean().optional(),
+    declareUno: z.boolean().optional(),
   }),
   z.object({ type: z.literal('drawCard') }),
-  z.object({ type: z.literal('closeTaki') }),
-  z.object({ type: z.literal('passBreak') }),
-  z.object({ type: z.literal('declareLastCard') }),
-  z.object({ type: z.literal('catchLastCard'), targetId: playerIdSchema }),
+  z.object({ type: z.literal('passTurn') }),
+  z.object({ type: z.literal('acceptWildDrawFour') }),
+  z.object({ type: z.literal('challengeWildDrawFour') }),
+  z.object({ type: z.literal('declareUno') }),
+  z.object({ type: z.literal('catchUno'), targetId: playerIdSchema }),
 ]);
 export type GameAction = z.infer<typeof gameActionSchema>;
+
+/**
+ * The actions that belong to a turn, and may therefore carry a turn token.
+ *
+ * Declared once and imported by both the client that stamps the token and the room
+ * that checks it. It used to be written out twice, in two packages, as two literals
+ * that happened to agree — and a list like that only has to disagree once, in the
+ * direction where a stale replayed action ends an innocent player's turn.
+ *
+ * Calling UNO, catching somebody who did not, and answering a Wild Draw Four are
+ * deliberately absent: they are legal at any moment, they race each other on
+ * purpose, and gating them on a turn would hand every tie to whoever broke the rule.
+ */
+export const TURN_SCOPED_ACTIONS = ['playCard', 'drawCard', 'passTurn'] as const;
+
+export function isTurnScoped(action: GameAction): boolean {
+  return (TURN_SCOPED_ACTIONS as readonly string[]).includes(action.type);
+}
 
 export const joinRejectionReasonSchema = z.enum([
   'roomFull',

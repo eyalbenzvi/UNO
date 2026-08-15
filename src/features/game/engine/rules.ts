@@ -1,87 +1,76 @@
-import {
-  cardColor,
-  cardSymbol,
-  isTakiCard,
-  isWildCard,
-  type Card,
-  type CardColor,
-  type CardId,
-} from './cards.ts';
+import { cardColor, cardSymbol, isWildCard, type Card, type CardColor, type CardId } from './cards.ts';
 import type { TurnDirection } from './state.ts';
 
 /**
  * Minimal information needed to decide whether a card may be played.
  *
- * Deliberately smaller than {@link import('./state.ts').GameState} so that
- * non-host clients — which only ever hold public state plus their own hand —
- * can run exactly the same rule checks as the host.
+ * Two fields, and that is the whole of UNO's matching rule. Deliberately smaller
+ * than {@link import('./state.ts').GameState} so that clients — which only ever
+ * hold public state plus their own hand — can run exactly the same rule checks as
+ * the room.
  */
 export interface PlayContext {
   readonly activeColor: CardColor;
   /** Visible top card of the discard pile, or `null` before the first play. */
   readonly topCard: Card | null;
-  /** Colour an open Taki sequence is locked to, or `null` when none is open. */
-  readonly openTakiColor: CardColor | null;
-  /**
-   * Whether another Taki may still be laid straight onto the run.
-   *
-   * True while the run is nothing but Taki cards. Meaningless when
-   * `openTakiColor` is `null`.
-   */
-  readonly takiSwitchOpen: boolean;
-  /**
-   * Cards the player to move owes from a run of +2 cards; `0` when none. While
-   * this is above zero the only legal cards are another +2 and a King.
-   */
-  readonly pendingDraw: number;
-  /** Set after a King: anything in hand is legal. */
-  readonly freePlay: boolean;
 }
 
 /**
- * Core matching rule.
+ * Core matching rule: colour, symbol, or a wild.
  *
- * Outside a Taki sequence a card is playable when it is colourless, matches the
- * active colour, or matches the top card's symbol (number value or action kind).
- * Inside a Taki sequence only cards of the sequence colour are playable, and
- * colourless cards are never allowed.
+ * A card is playable when it matches the colour in play, when it matches the top
+ * card's symbol (its number, or its action), or when it is one of the two wilds.
  *
- * The one exception is a Taki laid straight onto another Taki: while the run is
- * still nothing but Taki cards, any Taki may be played — a coloured one carries
- * the sequence into its own colour, a Super Taki has none of its own and leaves
- * the run in the colour it is already in. As soon as an ordinary card joins the
- * run the colour is settled, and a Taki of a different colour is refused however
- * many same-colour Takis follow it.
+ * Both wilds are playable **unconditionally**, and the Wild Draw Four's famous
+ * restriction — that you may only play it holding no card of the colour in play —
+ * is deliberately *not* enforced here. That is not an oversight, it is the rule:
+ * the official game lets you play it as a bluff and gives the next player a
+ * challenge to catch you with. A gate here would make the bluff impossible, and
+ * with it the challenge, and with it the most interesting card in the deck. What
+ * the restriction governs is whether the bluff *succeeds* — see
+ * {@link isWildDrawFourHonest}, which the table's own highlight uses to guide an
+ * honest player and which the challenge uses to judge a dishonest one.
  *
- * Two situations override all of that: a pending +2 run can only be met with
- * another +2 or with a King, and the free play a King grants accepts anything.
+ * A wild may also be played while holding a perfectly good colour match. There is
+ * no rule against spending one early; it is simply usually a waste.
+ *
  * See `docs/rules.md`.
  */
 export function isCardPlayable(card: Card, context: PlayContext): boolean {
-  if (context.openTakiColor !== null) {
-    if (cardColor(card) === context.openTakiColor) {
-      return true;
-    }
-    /*
-     * A Super Taki counts here exactly as a coloured one does. A coloured Taki is
-     * legal on top of a Super Taki — the symbols match — so a Super Taki has to be
-     * legal on top of a Taki too, or the rule would read in one direction only. It
-     * simply has no colour to carry the run into, so the run stays where it is.
-     */
-    return context.takiSwitchOpen && isTakiCard(card);
-  }
-  if (context.pendingDraw > 0) {
-    // Two cards meet a run, and they meet it differently: a +2 raises it and
-    // passes it on, a King wipes it. Everything else draws the run.
-    return card.kind === 'plusTwo' || card.kind === 'king';
-  }
-  if (context.freePlay || isWildCard(card)) {
+  if (isWildCard(card)) {
     return true;
   }
   if (cardColor(card) === context.activeColor) {
     return true;
   }
   return context.topCard !== null && cardSymbol(card) === cardSymbol(context.topCard);
+}
+
+/**
+ * Whether a Wild Draw Four played out of this hand was an honest one.
+ *
+ * The single question a challenge asks, and the reason it lives here rather than
+ * inside the challenge code: the table's card highlight asks it too, so an honest
+ * player is shown the card as unplayable and never bluffs by accident. One
+ * function, so the hint a player is given and the verdict they are judged by can
+ * never disagree.
+ *
+ * **Colour only.** Holding a matching number or action does not bar the card —
+ * only a card of the colour actually in play does. And a wild in hand never
+ * counts: it has no colour to match with, so a hand of nothing but wilds is an
+ * honest hand.
+ *
+ * `playedId` is excluded because the card being judged is still in the hand at
+ * the moment the question is asked, and a Wild Draw Four is colourless anyway —
+ * excluding it costs nothing and removes the need for the caller to think about
+ * when it is removed.
+ */
+export function isWildDrawFourHonest(
+  hand: readonly Card[],
+  activeColor: CardColor,
+  playedId: CardId,
+): boolean {
+  return !hand.some((card) => card.id !== playedId && cardColor(card) === activeColor);
 }
 
 export function getPlayableCardIds(hand: readonly Card[], context: PlayContext): CardId[] {
