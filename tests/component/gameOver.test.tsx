@@ -233,12 +233,6 @@ describe('end of round', () => {
     expect(within(table).queryByRole('columnheader', { name: 'ניקוד' })).not.toBeInTheDocument();
   });
 
-  it('does not offer a staircase column for a classic round', () => {
-    enterGameOver();
-    renderApp();
-    expect(screen.queryByRole('columnheader', { name: 'ידיים שהושלמו' })).not.toBeInTheDocument();
-  });
-
   it('keeps the standings numeric, with the unit in the header', () => {
     enterGameOver();
     renderApp();

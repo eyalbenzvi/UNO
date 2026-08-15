@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
+  awaitSettled,
   expectDealt,
   createRoom,
   joinRoom,
@@ -43,7 +44,7 @@ test.describe('a two-player game, against the real room', () => {
 
     await creator.getByRole('button', { name: 'Start game' }).click();
 
-    // Both sides receive the table; each holds exactly eight private cards.
+    // Both sides receive the table; each holds a private hand of its own.
     await expectDealt(creator);
     await expectDealt(guest);
     await expect(creator.getByText('Current colour:')).toBeVisible();
@@ -111,8 +112,10 @@ test.describe('a two-player game, against the real room', () => {
 
     // The opponent's cards are only ever shown face down.
     await expect(guest.locator('.seat .card--back')).toHaveCount(1);
-    expect(creatorLabels).toHaveLength(8);
-    expect(guestLabels).toHaveLength(8);
+    // Seven each, or nine for whoever the opening Draw Two landed on. Either is a
+    // real deal; what this test is about is that neither hand is the other's.
+    expect([7, 9]).toContain(creatorLabels.length);
+    expect([7, 9]).toContain(guestLabels.length);
     // Guest markup must not contain the other hand's card faces.
     const guestHtml = await guest.content();
     const unique = creatorLabels.filter((label) => label && !guestLabels.includes(label));
@@ -144,34 +147,27 @@ test.describe('a two-player game, against the real room', () => {
         continue;
       }
       before = await creator.locator('.hand .card').count();
-      const playable = creator.locator('.hand .card--playable');
-      /*
-       * One card in the deck is not an ordinary play, and this loop selects for it.
-       *
-       * A +3 Breaker played with no +3 to break is legal and costs its owner three
-       * cards, so the hand *grows* by two — while the assertion below is about a card
-       * leaving a hand. Drawing until something is playable makes an all-wild hand far
-       * likelier than it is in a real game, and the breaker sorts last, so
-       * `playAnyLegalCard` reaches for it exactly when it is the only playable card.
-       * That was a real failure at about one run in fifty, and it read as the hand
-       * mysteriously gaining cards. So: keep drawing until there is a card whose play
-       * is a plain play.
-       */
-      const labels = await playable.evaluateAll((cards) =>
-        cards.map((card) => card.getAttribute('aria-label') ?? ''),
-      );
-      if (labels.some((label) => !label.includes('Break +3'))) {
+      if ((await creator.locator('.hand .card--playable').count()) > 0) {
         ready = true;
         break;
       }
+      /*
+       * Nothing legal in hand. Drawing is the move, and in UNO it does not end the
+       * turn: the drawn card may be playable, in which case the loop's next pass
+       * finds it, and if it is not, `takeAnyTurn` ends the turn from the prompt.
+       */
       await creator.getByRole('button', { name: /Draw pile, \d+ cards/ }).click();
+      await awaitSettled(creator);
+      if ((await creator.locator('.hand .card--playable').count()) === 0) {
+        await takeAnyTurn(creator);
+      }
     }
     expect(ready, 'Dana never came round to a playable card').toBe(true);
 
     await playAnyLegalCard(creator);
 
-    // The hand shrinks (or the turn returns after a Stop/Plus); in every case
-    // the log records the play on both sides.
+    // Every card in this deck leaves the hand when it is played — including both
+    // wilds, whose cost falls on somebody else. The log records it on both sides.
     await expect(creator.locator('.hand .card')).toHaveCount(before - 1);
     await expectLogged(creator, 'Dana played');
     await expectLogged(guest, 'Dana played');
@@ -184,11 +180,27 @@ test.describe('a two-player game, against the real room', () => {
     await creator.getByRole('button', { name: 'Start game' }).click();
     await expect(creator.locator('.turn-banner--mine')).toBeVisible();
 
+    /*
+     * UNO's draw rule, which is the one this game most had to get right: drawing
+     * does *not* end the turn. The card that comes off the pile may be played, and
+     * the turn only moves when its owner says so. So: draw once, and the turn is
+     * still Dana's, the pile refuses a second card, and the table offers the way
+     * out — either the drawn card to play or the button that ends the turn.
+     */
     const drawPile = creator.getByRole('button', { name: /Draw pile, \d+ cards/ });
     await expect(drawPile).toHaveAttribute('aria-disabled', 'false');
     await drawPile.click();
-    await expect(guest.locator('.turn-banner--mine')).toBeVisible();
+    await awaitSettled(creator);
+
+    await expect(creator.locator('.turn-banner--mine')).toBeVisible();
+    await expect(guest.locator('.turn-banner--mine')).toBeHidden();
+    await expect(drawPile).toHaveAttribute('aria-disabled', 'true');
+    await expect(creator.getByRole('button', { name: 'End my turn' })).toBeVisible();
     await expectLogged(creator, 'Dana drew a card');
+
+    // And the turn moves when, and only when, she ends it.
+    await creator.getByRole('button', { name: 'End my turn' }).click();
+    await expect(guest.locator('.turn-banner--mine')).toBeVisible();
   });
 
   test('refuses the draw pile and the hand when it is not your turn', async ({ context }) => {

@@ -179,7 +179,7 @@ describe('legal card highlighting', () => {
     const hand = [red5, blue3, wild, redSkip];
     situation({ hand, discardTop: red9, activeColor: 'red' });
     const { publicState } = {
-      publicState: { activeColor: 'red' as const, discardTop: red9, takiMode: null },
+      publicState: { activeColor: 'red' as const, discardTop: red9 },
     };
     const expected = getPlayableCardIds(
       hand,

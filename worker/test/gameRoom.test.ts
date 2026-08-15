@@ -436,11 +436,7 @@ describe('absence, on the alarm', () => {
     let onTurn = seats.find((s) => s.playerId === currentPlayerId(creator.client))!;
     for (let guard = 0; guard < 20; guard += 1) {
       const state = creator.client.state;
-      if (
-        state?.challenge === null &&
-        state.hasDrawn === false &&
-        onTurn.playerId === guest.playerId
-      ) {
+      if (state?.challenge === null && state.hasDrawn === false && onTurn.playerId === guest.playerId) {
         break;
       }
       takeTurn(seats);

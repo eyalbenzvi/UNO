@@ -206,8 +206,8 @@ describe('the other players', () => {
 /**
  * In a points round the card count stops being the score.
  *
- * Two cards left may mean one step from winning or nothing at all, so how far down
- * the staircase each seat is has to be on the table beside the counts — including
+ * Two cards left may mean one round from winning the match or nothing at all, so
+ * each seat's banked points have to be on the table beside the counts — including
  * the player's own, which is the one number they cannot read off anybody's seat.
  */
 describe('the running score, on the table', () => {

@@ -1,5 +1,14 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { expectDealt, awaitSettled, canDrawFrom, createRoom, joinRoom, onTurn, openApp, tapIfPresent } from './helpers.ts';
+import {
+  expectDealt,
+  awaitSettled,
+  canDrawFrom,
+  createRoom,
+  joinRoom,
+  onTurn,
+  openApp,
+  tapIfPresent,
+} from './helpers.ts';
 
 /**
  * Plays a complete round through the UI.
