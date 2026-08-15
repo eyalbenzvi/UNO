@@ -31,9 +31,12 @@ function expectTableMoves(state: GameState): void {
   if (state.phase === 'finished') {
     return;
   }
-  if (state.plusThree !== null) {
-    // A breaker window is a legitimate pause, but only if somebody live can end it.
-    expect(state.plusThree.awaiting.length).toBeGreaterThan(0);
+  if (state.challenge !== null) {
+    // A challenge window is a legitimate pause, but only if the seat it names is
+    // still in the round and can therefore end it.
+    const target = state.players.find((player) => player.id === state.challenge?.targetId);
+    expect(target, 'the seat being waited for must still exist').toBeDefined();
+    expect(target?.left).not.toBe(true);
     return;
   }
   const onTurn = currentPlayer(state);
@@ -41,449 +44,212 @@ function expectTableMoves(state: GameState): void {
   expect(onTurn?.left).not.toBe(true);
 }
 
+function threeSeats(overrides: Parameters<typeof makeState>[0] = {}) {
+  return makeState({
+    players: players('Alice', 'Bob', 'Carol'),
+    currentPlayerIndex: 0,
+    activeColor: 'red',
+    discardPile: cards('red:5'),
+    hands: {
+      'p-alice': cards('blue:3', 'blue:4'),
+      'p-bob': cards('green:6', 'green:7'),
+      'p-carol': cards('yellow:8', 'yellow:9'),
+    },
+    drawPile: cards('red:1', 'red:2', 'red:3', 'red:4', 'red:6', 'red:7'),
+    ...overrides,
+  });
+}
+
 describe('skipping the turn of a player who is away', () => {
   it('costs them the card the turn itself would have cost', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob'),
-      hands: { 'p-alice': cards('red:1', 'red:3'), 'p-bob': cards('blue:5') },
-      discardPile: cards('red:9'),
-    });
-    const before = state.hands['p-alice']?.length ?? 0;
-    const { state: next, events } = expectOk(applyCommand(state, { type: 'skipTurn', playerId: 'p-alice' }));
-
-    // Exactly what a present player pays for a turn they play nothing on. A pass
-    // that cost nothing was the cheapest turn at the table — a hand that cannot
-    // grow cannot lose — so orbiting an absent seat handed it an advantage over
-    // everybody who stayed.
-    expect(next.hands['p-alice']?.length).toBe(before + 1);
-    expect(events.find((event) => event.type === 'turnSkipped')).toMatchObject({
-      playerId: 'p-alice',
-      drew: 1,
-    });
-    expect(currentPlayer(next)?.id).toBe('p-bob');
-    expect(totalCards(next)).toBe(totalCards(state));
-    expectTableMoves(next);
+    const before = threeSeats();
+    const { state, events } = expectOk(applyCommand(before, { type: 'skipTurn', playerId: 'p-alice' }));
+    expect(state.hands['p-alice']).toHaveLength(3);
+    expect(state.players[state.currentPlayerIndex]?.id).toBe('p-bob');
+    expect(events).toContainEqual({ type: 'turnSkipped', playerId: 'p-alice', drew: 1 });
+    expect(totalCards(state)).toBe(totalCards(before));
+    expectTableMoves(state);
   });
 
-  it('pays an outstanding +2 run in full', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5') },
-      discardPile: cards('red:plusTwo'),
-      pendingDraw: 4,
-      drawPile: cards('green:1', 'green:3', 'green:4', 'green:5', 'green:6'),
-    });
-    const { state: next, events } = expectOk(applyCommand(state, { type: 'skipTurn', playerId: 'p-alice' }));
-
-    // The one thing that must not evaporate is a penalty somebody *else*
-    // created: voiding it would either destroy cards or dump the run on the next
-    // seat, and it would make pulling the plug the cheapest answer to a run.
-    expect(next.hands['p-alice']).toHaveLength(5);
-    expect(next.pendingDraw).toBe(0);
-    expect(events.find((event) => event.type === 'turnSkipped')).toMatchObject({ drew: 4 });
-    expect(totalCards(next)).toBe(totalCards(state));
-    expectTableMoves(next);
-  });
-
-  it("forfeits a King's free turn for the price of any other turn", () => {
-    // A King cancels everything and hands its player an unrestricted turn. An
-    // absent player loses the freedom and pays the card, which is precisely what
-    // taking the pile on that turn would have cost them — no extra penalty for
-    // the gift going unused, and no discount for it either.
-    const state = makeState({
-      players: players('Alice', 'Bob'),
-      hands: { 'p-alice': cards('red:1', 'blue:7'), 'p-bob': cards('blue:5') },
-      discardPile: cards('king'),
-      pendingPlus: true,
-      freePlay: true,
-      drawPile: cards('green:8'),
-    });
-    const drawn = expectOk(applyCommand(state, { type: 'drawCard', playerId: 'p-alice' })).state;
-    expect(drawn.hands['p-alice']).toHaveLength(3);
-
-    const { state: next } = expectOk(applyCommand(state, { type: 'skipTurn', playerId: 'p-alice' }));
-    expect(next.hands['p-alice']).toHaveLength(3);
-    expect(next.pendingPlus).toBe(false);
-    expect(next.freePlay).toBe(false);
-    expect(currentPlayer(next)?.id).toBe('p-bob');
-    expectTableMoves(next);
-  });
-
-  it('forfeits a Plus obligation the player is holding a legal answer to', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5') },
-      discardPile: cards('red:plus'),
-      pendingPlus: true,
-      drawPile: cards('green:8'),
-    });
-    // Same as the King: a present player may pay the obligation from the pile,
-    // and that costs a card. An absent one pays the same card.
-    const drawn = expectOk(applyCommand(state, { type: 'drawCard', playerId: 'p-alice' })).state;
-    expect(drawn.hands['p-alice']).toHaveLength(2);
-
-    const { state: next } = expectOk(applyCommand(state, { type: 'skipTurn', playerId: 'p-alice' }));
-    expect(next.hands['p-alice']).toHaveLength(2);
-    expect(currentPlayer(next)?.id).toBe('p-bob');
-    expectTableMoves(next);
-  });
-
-  it('closes an open Taki sequence and does not skip an extra player', () => {
-    // `closeTaki` already resolves the last card's effect, and for a number that
-    // includes advancing the turn. Adding another advance here would rob an
-    // innocent player of their turn — and it would look like a bug in Taki, not
-    // in the disconnect handling.
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5'), 'p-carol': cards('green:5') },
-      discardPile: cards('red:taki', 'red:4'),
-      takiMode: {
-        color: 'red',
-        playerId: 'p-alice',
-        cardsPlayed: 2,
-        openedWithSuperTaki: false,
-        takisOnly: false,
-      },
-    });
-    const { state: next, events } = expectOk(applyCommand(state, { type: 'skipTurn', playerId: 'p-alice' }));
-
-    expect(next.takiMode).toBeNull();
-    expect(eventTypes(events)).toContain('takiClosed');
-    // The close *was* the turn, so there is nothing left to pass and nothing to
-    // charge for: the last card of the sequence resolved as it always does.
-    expect(next.hands['p-alice']).toHaveLength(1);
-    expect(eventTypes(events)).not.toContain('turnSkipped');
-    expect(currentPlayer(next)?.id).toBe('p-bob');
-    expectTableMoves(next);
-  });
-
-  it('lets a Stop that ends the sequence skip exactly one player', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5'), 'p-carol': cards('green:5') },
-      discardPile: cards('red:taki', 'red:stop'),
-      takiMode: {
-        color: 'red',
-        playerId: 'p-alice',
-        cardsPlayed: 2,
-        openedWithSuperTaki: false,
-        takisOnly: false,
-      },
-    });
-    const { state: next } = expectOk(applyCommand(state, { type: 'skipTurn', playerId: 'p-alice' }));
-
-    // Bob is stopped, so Carol moves. Not Alice again, and not Bob.
-    expect(currentPlayer(next)?.id).toBe('p-carol');
-    expectTableMoves(next);
-  });
-
-  it('finishes the skip when the sequence ended on a Plus', () => {
-    // This is the only close that leaves the turn with the absent player, so it
-    // is the only one where a second step is needed.
-    const state = makeState({
-      players: players('Alice', 'Bob'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5') },
-      discardPile: cards('red:taki', 'red:plus'),
-      takiMode: {
-        color: 'red',
-        playerId: 'p-alice',
-        cardsPlayed: 2,
-        openedWithSuperTaki: false,
-        takisOnly: false,
-      },
-    });
-    const { state: next, events } = expectOk(applyCommand(state, { type: 'skipTurn', playerId: 'p-alice' }));
-
-    expect(next.pendingPlus).toBe(false);
-    expect(currentPlayer(next)?.id).toBe('p-bob');
-    expect(eventTypes(events)).toContain('turnSkipped');
-    // The Plus left a turn behind, and the turn that is skipped costs its card.
-    expect(next.hands['p-alice']).toHaveLength(2);
-    expectTableMoves(next);
+  it('charges nothing further to a seat that had already drawn', () => {
+    /*
+     * They have taken their card. Charging a second would punish somebody for the
+     * moment their phone chose to die, which is the opposite of holding a seat.
+     */
+    const drew = expectOk(applyCommand(threeSeats(), { type: 'drawCard', playerId: 'p-alice' })).state;
+    expect(drew.hands['p-alice']).toHaveLength(3);
+    const { state, events } = expectOk(applyCommand(drew, { type: 'skipTurn', playerId: 'p-alice' }));
+    expect(state.hands['p-alice']).toHaveLength(3);
+    expect(events).toContainEqual({ type: 'turnSkipped', playerId: 'p-alice', drew: 0 });
+    expect(state.drawnCardId).toBeNull();
+    expectTableMoves(state);
   });
 
   it('refuses to skip somebody the table is not waiting for', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5') },
-      currentPlayerIndex: 0,
-    });
-    expectRejected(applyCommand(state, { type: 'skipTurn', playerId: 'p-bob' }), 'nothingToSkip');
-  });
-
-  it('draws what it can when the deck runs dry mid-penalty', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5') },
-      discardPile: cards('red:plusTwo'),
-      drawPile: cards('green:1'),
-      pendingDraw: 4,
-    });
-    const { state: next, events } = expectOk(applyCommand(state, { type: 'skipTurn', playerId: 'p-alice' }));
-
-    expect(eventTypes(events)).toContain('drawPileExhausted');
-    expect(next.pendingDraw).toBe(0);
-    expect(totalCards(next)).toBe(totalCards(state));
-    expectTableMoves(next);
+    expectRejected(applyCommand(threeSeats(), { type: 'skipTurn', playerId: 'p-bob' }), 'nothingToSkip');
   });
 
   it('still passes the turn when there is no card left to charge', () => {
-    // The price of a skip is a card, but the point of a skip is that the table
-    // keeps moving. With nothing to draw and nothing to recycle — the top card is
-    // never recycled — the turn moves on anyway rather than the round stopping.
-    const state = makeState({
-      players: players('Alice', 'Bob'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5') },
-      discardPile: cards('red:9'),
-      drawPile: [],
-    });
-    const { state: next, events } = expectOk(applyCommand(state, { type: 'skipTurn', playerId: 'p-alice' }));
-
+    const before = threeSeats({ drawPile: [], discardPile: cards('red:5') });
+    const { state, events } = expectOk(applyCommand(before, { type: 'skipTurn', playerId: 'p-alice' }));
     expect(eventTypes(events)).toContain('drawPileExhausted');
-    expect(events.find((event) => event.type === 'turnSkipped')).toMatchObject({ drew: 0 });
-    expect(next.hands['p-alice']).toHaveLength(1);
-    expect(currentPlayer(next)?.id).toBe('p-bob');
-    expect(totalCards(next)).toBe(totalCards(state));
-    expectTableMoves(next);
+    expect(state.players[state.currentPlayerIndex]?.id).toBe('p-bob');
+    expect(totalCards(state)).toBe(totalCards(before));
+    expectTableMoves(state);
   });
-});
 
-describe('a breaker window with an absent seat', () => {
-  it('settles when the absent seat declines on their behalf', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
-      hands: {
-        'p-alice': cards('red:1'),
-        'p-bob': cards('breakPlusThree'),
-        'p-carol': cards('green:5'),
-      },
-      discardPile: cards('red:plusThree'),
-      plusThree: { playerId: 'p-alice', awaiting: ['p-bob'] },
-      drawPile: cards('green:1', 'green:3', 'green:4', 'green:5', 'green:6', 'green:7'),
+  it('takes the cards for a seat that is not there to answer a challenge', () => {
+    /*
+     * A skip is free in this game, but a penalty somebody else created is paid in
+     * full — or pulling the plug becomes the cheapest answer to a Wild Draw Four.
+     */
+    const before = threeSeats({
+      challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: true },
     });
-    // While a +3 is open, the seat on turn is the player who *played* it — so
-    // nothing keyed on "it is the absent player's turn" would ever notice this
-    // table is frozen. Declining for them is the only way out.
-    const { state: next, events } = expectOk(applyCommand(state, { type: 'passBreak', playerId: 'p-bob' }));
+    const { state } = expectOk(applyCommand(before, { type: 'skipTurn', playerId: 'p-bob' }));
+    expect(state.hands['p-bob']).toHaveLength(6);
+    expect(state.challenge).toBeNull();
+    expect(totalCards(state)).toBe(totalCards(before));
+    expectTableMoves(state);
+  });
 
-    expect(next.plusThree).toBeNull();
-    // An all-decline is exactly what a present player choosing to pass produces,
-    // and — importantly — no event names who was holding a breaker. That is
-    // information the rules promise never to publish.
-    expect(eventTypes(events)).not.toContain('plusThreeBroken');
-    expect(totalCards(next)).toBe(totalCards(state));
-    expectTableMoves(next);
+  it('refuses to answer a challenge on behalf of a seat it is not addressed to', () => {
+    const before = threeSeats({
+      challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: false },
+    });
+    expectRejected(applyCommand(before, { type: 'skipTurn', playerId: 'p-carol' }), 'nothingToSkip');
   });
 });
 
 describe('a player who leaves the round', () => {
   it('keeps their seat, their cards and their place in the standings', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5', 'blue:7'), 'p-carol': cards('green:5') },
-      currentPlayerIndex: 0,
-    });
-    const { state: next, events } = expectOk(applyCommand(state, { type: 'leaveGame', playerId: 'p-bob' }));
-
-    expect(next.players).toHaveLength(3);
-    expect(next.players.find((player) => player.id === 'p-bob')?.left).toBe(true);
-    expect(next.hands['p-bob']).toHaveLength(2);
-    expect(activePlayers(next)).toHaveLength(2);
-    expect(eventTypes(events)).toContain('playerLeft');
-    // No reshuffle, no random numbers consumed, no draw-pile jump to explain.
-    expect(next.rng).toEqual(state.rng);
-    expect(totalCards(next)).toBe(totalCards(state));
+    const before = threeSeats();
+    const { state } = expectOk(applyCommand(before, { type: 'leaveGame', playerId: 'p-bob' }));
+    expect(state.players).toHaveLength(3);
+    expect(state.players.find((player) => player.id === 'p-bob')?.left).toBe(true);
+    // Frozen, not destroyed: no reshuffle, and the count still comes out right.
+    expect(state.hands['p-bob']).toHaveLength(2);
+    expect(totalCards(state)).toBe(totalCards(before));
+    expect(activePlayers(state)).toHaveLength(2);
   });
 
   it('steps over them when the turn comes round', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
-      hands: { 'p-alice': cards('red:1', 'red:3'), 'p-bob': cards('blue:5'), 'p-carol': cards('green:5') },
-      currentPlayerIndex: 0,
-    });
-    const { state: left } = expectOk(applyCommand(state, { type: 'leaveGame', playerId: 'p-bob' }));
-    const { state: next } = expectOk(applyCommand(left, { type: 'skipTurn', playerId: 'p-alice' }));
-
-    expect(currentPlayer(next)?.id).toBe('p-carol');
-    expectTableMoves(next);
-  });
-
-  it('does not shift the turn onto the wrong player when an earlier seat goes', () => {
-    // The bug this pins: `currentPlayerIndex` is an index. Splicing a seat that
-    // sits *before* it silently moves the turn to somebody else — which is why
-    // seats are marked rather than removed.
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol', 'Dave'),
-      hands: {
-        'p-alice': cards('red:1'),
-        'p-bob': cards('blue:5'),
-        'p-carol': cards('green:5'),
-        'p-dave': cards('yellow:5'),
-      },
-      currentPlayerIndex: 2,
-      direction: -1,
-    });
-    const { state: next } = expectOk(applyCommand(state, { type: 'leaveGame', playerId: 'p-bob' }));
-
-    expect(currentPlayer(next)?.id).toBe('p-carol');
-    expectTableMoves(next);
+    const left = expectOk(applyCommand(threeSeats(), { type: 'leaveGame', playerId: 'p-bob' })).state;
+    const { state } = expectOk(applyCommand(left, { type: 'skipTurn', playerId: 'p-alice' }));
+    expect(state.players[state.currentPlayerIndex]?.id).toBe('p-carol');
+    expectTableMoves(state);
   });
 
   it('moves the turn on when the player on turn is the one leaving', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5'), 'p-carol': cards('green:5') },
-      currentPlayerIndex: 1,
-      pendingDraw: 4,
-    });
-    const { state: next } = expectOk(applyCommand(state, { type: 'leaveGame', playerId: 'p-bob' }));
-
-    expect(currentPlayer(next)?.id).toBe('p-carol');
-    // A penalty inherited from a seat that no longer exists is not passed on to
-    // an innocent player — unlike a skip, where the player is expected back.
-    expect(next.pendingDraw).toBe(0);
-    expectTableMoves(next);
+    const before = threeSeats();
+    const { state } = expectOk(applyCommand(before, { type: 'leaveGame', playerId: 'p-alice' }));
+    expect(state.players[state.currentPlayerIndex]?.id).toBe('p-bob');
+    expectTableMoves(state);
   });
 
-  it('releases a Taki sequence they owned, which would otherwise deadlock for ever', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5'), 'p-carol': cards('green:5') },
-      discardPile: cards('red:taki'),
-      takiMode: {
-        color: 'red',
-        playerId: 'p-bob',
-        cardsPlayed: 1,
-        openedWithSuperTaki: false,
-        takisOnly: false,
-      },
-      currentPlayerIndex: 1,
-    });
-    const { state: next } = expectOk(applyCommand(state, { type: 'leaveGame', playerId: 'p-bob' }));
-
-    // Only its owner can close a sequence and nobody may draw while one is open,
-    // so leaving it behind is a permanent freeze for the whole table.
-    expect(next.takiMode).toBeNull();
-    expectTableMoves(next);
+  it('does not shift the turn onto the wrong player when an earlier seat goes', () => {
+    const before = threeSeats({ currentPlayerIndex: 2 });
+    const { state } = expectOk(applyCommand(before, { type: 'leaveGame', playerId: 'p-alice' }));
+    // Carol was on turn and still is: marking a seat rather than splicing it out is
+    // what keeps `currentPlayerIndex` meaning what it meant.
+    expect(state.players[state.currentPlayerIndex]?.id).toBe('p-carol');
+    expectTableMoves(state);
   });
 
-  it('releases a breaker window that was waiting on them', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
-      hands: {
-        'p-alice': cards('red:1'),
-        'p-bob': cards('breakPlusThree'),
-        'p-carol': cards('green:5'),
-      },
-      discardPile: cards('red:plusThree'),
-      plusThree: { playerId: 'p-alice', awaiting: ['p-bob'] },
-      drawPile: cards('green:1', 'green:3', 'green:4', 'green:5', 'green:6', 'green:7'),
+  it('cancels a challenge whose author has left rather than charging the table', () => {
+    const before = threeSeats({
+      challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: true },
     });
-    const { state: next } = expectOk(applyCommand(state, { type: 'leaveGame', playerId: 'p-bob' }));
-
-    // An `awaiting` entry naming somebody who has gone can never empty, and
-    // every command from every seat is refused while one is open.
-    expect(next.plusThree).toBeNull();
-    expectTableMoves(next);
+    const { state } = expectOk(applyCommand(before, { type: 'leaveGame', playerId: 'p-alice' }));
+    expect(state.challenge).toBeNull();
+    // Nobody drew: there is no longer anybody to have bluffed.
+    expect(state.hands['p-bob']).toHaveLength(2);
+    expect(totalCards(state)).toBe(totalCards(before));
+    expectTableMoves(state);
   });
 
-  it('cancels a +3 whose author has left rather than charging the table', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
-      hands: {
-        'p-alice': cards('red:1'),
-        'p-bob': cards('breakPlusThree'),
-        'p-carol': cards('green:5'),
-      },
-      discardPile: cards('red:plusThree'),
-      plusThree: { playerId: 'p-alice', awaiting: ['p-bob'] },
+  it('releases a challenge window that was waiting on them', () => {
+    const before = threeSeats({
+      challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: false },
     });
-    const { state: next } = expectOk(applyCommand(state, { type: 'leaveGame', playerId: 'p-alice' }));
-
-    expect(next.plusThree).toBeNull();
-    expect(next.hands['p-carol']).toHaveLength(1);
-    expectTableMoves(next);
+    const { state } = expectOk(applyCommand(before, { type: 'leaveGame', playerId: 'p-bob' }));
+    expect(state.challenge).toBeNull();
+    // Their hand is frozen out of play, so there is nothing to add four cards to.
+    expect(state.hands['p-bob']).toHaveLength(2);
+    expect(totalCards(state)).toBe(totalCards(before));
+    expectTableMoves(state);
   });
 
   it('ends the round with no winner when too few players are left', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5') },
-    });
-    const { state: next, events } = expectOk(applyCommand(state, { type: 'leaveGame', playerId: 'p-bob' }));
-
-    expect(next.phase).toBe('finished');
-    // Never a win. The health that gates a removal is measured by the host, so
-    // "last player standing wins" would let a two-player host award themselves
-    // the round for a twenty-second blip.
-    expect(next.winnerId).toBeNull();
-    expect(next.endReason).toBe('abandoned');
+    const left = expectOk(applyCommand(threeSeats(), { type: 'leaveGame', playerId: 'p-bob' })).state;
+    const { state, events } = expectOk(applyCommand(left, { type: 'leaveGame', playerId: 'p-carol' }));
+    expect(state.phase).toBe('finished');
+    expect(state.winnerId).toBeNull();
+    expect(state.endReason).toBe('abandoned');
     expect(eventTypes(events)).toContain('roundAbandoned');
   });
 
-  it('cannot be caught on last card once they have gone', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5'), 'p-carol': cards('green:5') },
+  it('cannot be caught on their last card once they have gone', () => {
+    const before = threeSeats({
+      hands: {
+        'p-alice': cards('blue:3', 'blue:4'),
+        'p-bob': cards('green:6'),
+        'p-carol': cards('yellow:8', 'yellow:9'),
+      },
     });
-    const { state: left } = expectOk(applyCommand(state, { type: 'leaveGame', playerId: 'p-bob' }));
-
+    const { state } = expectOk(applyCommand(before, { type: 'leaveGame', playerId: 'p-bob' }));
     expectRejected(
-      applyCommand(left, { type: 'catchLastCard', playerId: 'p-alice', targetId: 'p-bob' }),
+      applyCommand(state, { type: 'catchUno', playerId: 'p-alice', targetId: 'p-bob' }),
       'nothingToCatch',
     );
   });
 
   it('cannot act again', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5'), 'p-carol': cards('green:5') },
-      currentPlayerIndex: 1,
-    });
-    const { state: left } = expectOk(applyCommand(state, { type: 'leaveGame', playerId: 'p-bob' }));
-
+    const left = expectOk(applyCommand(threeSeats(), { type: 'leaveGame', playerId: 'p-bob' })).state;
     expectRejected(applyCommand(left, { type: 'drawCard', playerId: 'p-bob' }), 'alreadyLeft');
     expectRejected(applyCommand(left, { type: 'leaveGame', playerId: 'p-bob' }), 'alreadyLeft');
   });
 
-  it('is stepped over by a Stop rather than wasting the card', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob', 'Carol'),
+  it('is stepped over by a Skip rather than wasting the card', () => {
+    const before = threeSeats({
       hands: {
-        'p-alice': cards('red:stop', 'red:3'),
-        'p-bob': cards('blue:5'),
-        'p-carol': cards('green:5'),
+        'p-alice': cards('red:skip', 'blue:4'),
+        'p-bob': cards('green:6', 'green:7'),
+        'p-carol': cards('yellow:8', 'yellow:9'),
       },
-      discardPile: cards('red:9'),
     });
-    const { state: left } = expectOk(applyCommand(state, { type: 'leaveGame', playerId: 'p-bob' }));
-    const cardId = (left.hands['p-alice'] ?? [])[0]!.id;
-    const { state: next, events } = expectOk(
-      applyCommand(left, { type: 'playCard', playerId: 'p-alice', cardId }),
+    const left = expectOk(applyCommand(before, { type: 'leaveGame', playerId: 'p-bob' })).state;
+    const skip = left.hands['p-alice']![0]!;
+    const { state, events } = expectOk(
+      applyCommand(left, { type: 'playCard', playerId: 'p-alice', cardId: skip.id }),
     );
-
-    // With Bob gone the Stop has to land on Carol, and the turn returns to
-    // Alice. Spending it on an empty seat would rob Carol of nothing and grant
-    // Alice nothing.
-    expect(events.find((event) => event.type === 'playerSkipped')).toMatchObject({ playerId: 'p-carol' });
-    expect(currentPlayer(next)?.id).toBe('p-alice');
-    expectTableMoves(next);
+    // Carol is skipped, not Bob: the card must not be spent on an empty seat.
+    expect(events).toContainEqual({ type: 'playerSkipped', playerId: 'p-carol' });
+    expect(state.players[state.currentPlayerIndex]?.id).toBe('p-alice');
+    expectTableMoves(state);
   });
 });
 
 describe('the turn counter', () => {
   it('moves only when the turn does', () => {
-    const state = makeState({
-      players: players('Alice', 'Bob'),
-      hands: { 'p-alice': cards('red:1'), 'p-bob': cards('blue:5') },
+    const before = threeSeats({
+      hands: {
+        'p-alice': cards('blue:3', 'blue:4'),
+        'p-bob': cards('green:6'),
+        'p-carol': cards('yellow:8', 'yellow:9'),
+      },
     });
-    // A declaration is legal at any moment and bumps `version` — which is
-    // exactly why `version` cannot be used to ask "is my move still current?".
-    const { state: declared } = expectOk(applyCommand(state, { type: 'declareLastCard', playerId: 'p-bob' }));
-    expect(declared.version).toBe(state.version + 1);
-    expect(declared.turnSeq).toBe(state.turnSeq);
+    // A call and a catch are shouts rather than moves, so neither touches it.
+    const called = expectOk(applyCommand(before, { type: 'declareUno', playerId: 'p-bob' })).state;
+    expect(called.turnSeq).toBe(before.turnSeq);
+    expect(called.version).toBe(before.version + 1);
 
-    const { state: skipped } = expectOk(applyCommand(declared, { type: 'skipTurn', playerId: 'p-alice' }));
-    expect(skipped.turnSeq).toBe(state.turnSeq + 1);
+    // Drawing does not end a turn, so it does not move it either.
+    const drew = expectOk(applyCommand(called, { type: 'drawCard', playerId: 'p-alice' })).state;
+    expect(drew.turnSeq).toBe(before.turnSeq);
+
+    // Ending the turn does.
+    const passed = expectOk(applyCommand(drew, { type: 'passTurn', playerId: 'p-alice' })).state;
+    expect(passed.turnSeq).toBe(before.turnSeq + 1);
   });
 });

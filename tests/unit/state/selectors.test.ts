@@ -28,7 +28,7 @@ import { LAST_CARD_GRACE_MS } from '../../../src/features/game/network/timing.ts
 
 const red5: Card = { id: 'c1', kind: 'number', color: 'red', value: 5 };
 const blue3: Card = { id: 'c2', kind: 'number', color: 'blue', value: 3 };
-const wild: Card = { id: 'c3', kind: 'colorChange' };
+const wild: Card = { id: 'c3', kind: 'wild' };
 
 const lobby: LobbySnapshot = {
   roomCode: '482913',
@@ -70,7 +70,7 @@ const publicState: PublicGameState = {
   pendingDraw: 0,
   freePlay: false,
   plusThree: null,
-  declaredLastCard: [],
+  declaredUno: [],
   winnerId: null,
 };
 
@@ -237,10 +237,10 @@ describe('standings and health', () => {
 describe('hand display order', () => {
   it('groups the hand by colour and orders each group, colourless last', () => {
     const hand: Card[] = [
-      { id: 'a', kind: 'colorChange' },
+      { id: 'a', kind: 'wild' },
       { id: 'b', kind: 'number', color: 'blue', value: 3 },
       { id: 'c', kind: 'number', color: 'red', value: 9 },
-      { id: 'd', kind: 'stop', color: 'red' },
+      { id: 'd', kind: 'skip', color: 'red' },
       { id: 'e', kind: 'number', color: 'red', value: 1 },
       { id: 'f', kind: 'number', color: 'yellow', value: 5 },
       { id: 'g', kind: 'king' },

@@ -44,8 +44,8 @@ describe('public game state', () => {
     expect(view.currentPlayerId).toBe('p-alice');
     expect(view.direction).toBe(1);
     expect(view.activeColor).toBe('red');
-    expect(view.takiMode).toBeNull();
-    expect(view.pendingPlus).toBe(false);
+    expect(view.challenge).toBeNull();
+    expect(view.hasDrawn).toBe(false);
     expect(view.winnerId).toBeNull();
   });
 
@@ -60,26 +60,14 @@ describe('public game state', () => {
     expect(playContextFromPublic(view)).toEqual({
       activeColor: 'red',
       topCard: view.discardTop,
-      openTakiColor: null,
-      takiSwitchOpen: false,
-      pendingDraw: 0,
-      freePlay: false,
     });
   });
 
-  it('reflects an open taki sequence', () => {
+  it('reflects an open challenge, and names both seats', () => {
     const view = toPublicGameState(
-      makeState({
-        takiMode: {
-          color: 'blue',
-          playerId: 'p-alice',
-          cardsPlayed: 2,
-          openedWithSuperTaki: true,
-          takisOnly: false,
-        },
-      }),
+      makeState({ challenge: { playerId: 'p-alice', targetId: 'p-bob', bluffed: true } }),
     );
-    expect(playContextFromPublic(view).openTakiColor).toBe('blue');
+    expect(view.challenge).toEqual({ playerId: 'p-alice', targetId: 'p-bob' });
   });
 });
 

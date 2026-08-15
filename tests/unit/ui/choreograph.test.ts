@@ -87,9 +87,9 @@ describe('what each event is worth', () => {
     },
     { event: { type: 'plusThreePlayed', playerId: THEM }, count: 1, note: 'threatens' },
     { event: { type: 'plusThreeBroken', playerId: THEM, targetId: THIRD }, count: 2, note: 'reverses' },
-    { event: { type: 'lastCardDeclared', playerId: THEM }, count: 1, note: 'the shout' },
+    { event: { type: 'unoDeclared', playerId: THEM }, count: 1, note: 'the shout' },
     {
-      event: { type: 'lastCardCaught', playerId: THEM, caughtById: THIRD, penalty: 4 },
+      event: { type: 'unoCaught', playerId: THEM, caughtById: THIRD, penalty: 4 },
       count: 1,
       note: 'directional',
     },
@@ -257,15 +257,15 @@ describe('a +3 sent back', () => {
 
 describe('a last card caught', () => {
   it('travels from whoever called it to whoever was caught', () => {
-    const [motion] = plan([{ type: 'lastCardCaught', playerId: THEM, caughtById: THIRD, penalty: 4 }]);
+    const [motion] = plan([{ type: 'unoCaught', playerId: THEM, caughtById: THIRD, penalty: 4 }]);
     expect(motion).toMatchObject({ from: `seat:${THIRD}`, to: `seat:${THEM}` });
   });
 
   it('works when I am the caller, and when I am the one caught', () => {
-    const [asCaller] = plan([{ type: 'lastCardCaught', playerId: THEM, caughtById: ME, penalty: 4 }]);
+    const [asCaller] = plan([{ type: 'unoCaught', playerId: THEM, caughtById: ME, penalty: 4 }]);
     expect(asCaller).toMatchObject({ from: 'hand', to: `seat:${THEM}` });
 
-    const [asCaught] = plan([{ type: 'lastCardCaught', playerId: ME, caughtById: THEM, penalty: 4 }]);
+    const [asCaught] = plan([{ type: 'unoCaught', playerId: ME, caughtById: THEM, penalty: 4 }]);
     expect(asCaught).toMatchObject({ from: `seat:${THEM}`, to: 'hand' });
   });
 });
@@ -436,8 +436,8 @@ describe('what each event is worth in sound', () => {
     expect(cue([{ type: 'cardDrawn', playerId: ME, count: 1 }])).toBe('draw');
     expect(cue([{ type: 'turnChanged', playerId: ME }])).toBe('yourTurn');
     expect(cue([{ type: 'drawStacked', playerId: THEM, total: 4 }])).toBe('penalty');
-    expect(cue([{ type: 'lastCardDeclared', playerId: THEM }])).toBe('lastCard');
-    expect(cue([{ type: 'lastCardCaught', playerId: ME, caughtById: THEM, penalty: 4 }])).toBe('caught');
+    expect(cue([{ type: 'unoDeclared', playerId: THEM }])).toBe('lastCard');
+    expect(cue([{ type: 'unoCaught', playerId: ME, caughtById: THEM, penalty: 4 }])).toBe('caught');
     expect(cue([{ type: 'playerWon', playerId: THEM }])).toBe('win');
   });
 
@@ -460,7 +460,7 @@ describe('what each event is worth in sound', () => {
      */
     expect(
       cue([
-        { type: 'lastCardCaught', playerId: ME, caughtById: THEM, penalty: 4 },
+        { type: 'unoCaught', playerId: ME, caughtById: THEM, penalty: 4 },
         { type: 'cardDrawn', playerId: ME, count: 4 },
       ]),
     ).toBe('caught');

@@ -81,12 +81,12 @@ function expectRefused(name: string): void {
 const red5: Card = { id: 'c1', kind: 'number', color: 'red', value: 5 };
 const blue5: Card = { id: 'c2', kind: 'number', color: 'blue', value: 5 };
 const blue3: Card = { id: 'c3', kind: 'number', color: 'blue', value: 3 };
-const redStop: Card = { id: 'c4', kind: 'stop', color: 'red' };
+const redStop: Card = { id: 'c4', kind: 'skip', color: 'red' };
 const superTaki: Card = { id: 'c5', kind: 'superTaki' };
-const colorChange: Card = { id: 'c6', kind: 'colorChange' };
+const colorChange: Card = { id: 'c6', kind: 'wild' };
 const redTaki: Card = { id: 'c7', kind: 'taki', color: 'red' };
 const red9: Card = { id: 'c8', kind: 'number', color: 'red', value: 9 };
-const redPlusTwo: Card = { id: 'c9', kind: 'plusTwo', color: 'red' };
+const redPlusTwo: Card = { id: 'c9', kind: 'drawTwo', color: 'red' };
 const king: Card = { id: 'c10', kind: 'king' };
 const breakPlusThree: Card = { id: 'c11', kind: 'breakPlusThree' };
 
@@ -635,7 +635,7 @@ describe('the last card declaration', () => {
         currentPlayerId: (options.myTurn ?? true) ? HOST_ID : GUEST_ID,
         discardTop: red9,
         activeColor: 'red',
-        declaredLastCard: options.declared ?? [],
+        declaredUno: options.declared ?? [],
         players: [
           { id: HOST_ID, name: 'דנה', cardCount: 1 },
           { id: GUEST_ID, name: 'אלי', cardCount: 5 },

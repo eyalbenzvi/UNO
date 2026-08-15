@@ -88,7 +88,7 @@ describe('calling somebody out', () => {
 
   it('is what a robot does to a seat nobody is looking after', () => {
     expect(decide(table({ ...silent, currentPlayerIndex: 1 }), ANN)?.action).toEqual({
-      type: 'catchLastCard',
+      type: 'catchUno',
       targetId: CAT,
     });
   });
@@ -107,7 +107,7 @@ describe('calling somebody out', () => {
 describe('aiming the punishing cards', () => {
   it('would rather not put a +2 on the seat it is looking after', () => {
     const hands = {
-      [ANN]: cards('red:plusTwo', 'red:5'),
+      [ANN]: cards('red:drawTwo', 'red:5'),
       [BEN]: cards('blue:4'),
       [CAT]: cards('green:3'),
     };
@@ -126,19 +126,19 @@ describe('aiming the punishing cards', () => {
 
   it('demotes a +3 for the whole table when anybody on it is being looked after', () => {
     const hands = {
-      [ANN]: cards('plusThree', 'red:5'),
+      [ANN]: cards('wildDrawFour', 'red:5'),
       [BEN]: cards('blue:4', 'blue:5'),
       [CAT]: cards('green:3', 'green:4'),
     };
     const base = { hands, discardPile: cards('red:9'), currentPlayerIndex: 0 };
-    expect(playedKind(table(base), ANN)).toBe('plusThree');
+    expect(playedKind(table(base), ANN)).toBe('wildDrawFour');
     // Cat is two seats away and still spared: a +3 lands on everybody.
     expect(playedKind(table({ ...base, assist: { [CAT]: 1 } }), ANN)).toBe('number');
   });
 
   it('still plays a punishing card when it is the only legal one, rather than freezing the table', () => {
     const state = table({
-      hands: { [ANN]: cards('red:plusTwo'), [BEN]: cards('blue:4'), [CAT]: cards('green:3') },
+      hands: { [ANN]: cards('red:drawTwo'), [BEN]: cards('blue:4'), [CAT]: cards('green:3') },
       discardPile: cards('red:9'),
       currentPlayerIndex: 0,
       assist: { [BEN]: 3 },
@@ -150,7 +150,7 @@ describe('aiming the punishing cards', () => {
 describe('playing a little worse', () => {
   it('sometimes takes the second-best card, and never at an ordinary table', () => {
     const hands = {
-      [ANN]: cards('red:stop', 'red:5', 'red:6'),
+      [ANN]: cards('red:skip', 'red:5', 'red:6'),
       [BEN]: cards('blue:4', 'blue:5'),
       [CAT]: cards('green:3', 'green:4'),
     };

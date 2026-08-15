@@ -231,7 +231,7 @@ describe('joining a room through the store', () => {
     store().startGame();
     await flush();
 
-    const wild = store().hand.find((card) => card.kind === 'colorChange');
+    const wild = store().hand.find((card) => card.kind === 'wild');
     const before = store().hand.length;
     if (wild && store().publicState?.currentPlayerId === store().localPlayerId) {
       store().playCard(wild.id, 'red');

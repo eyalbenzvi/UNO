@@ -48,13 +48,13 @@ describe('command validation', () => {
   });
 
   it('requires a colour for wild cards', () => {
-    const state = makeState({ hands: { 'p-alice': cards('colorChange'), 'p-bob': cards('red:1') } });
+    const state = makeState({ hands: { 'p-alice': cards('wild'), 'p-bob': cards('red:1') } });
     const cardId = (state.hands['p-alice'] ?? [])[0]!.id;
     expectRejected(applyCommand(state, { type: 'playCard', playerId: 'p-alice', cardId }), 'colorRequired');
   });
 
   it('rejects an invalid colour for wild cards', () => {
-    const state = makeState({ hands: { 'p-alice': cards('colorChange'), 'p-bob': cards('red:1') } });
+    const state = makeState({ hands: { 'p-alice': cards('wild'), 'p-bob': cards('red:1') } });
     const cardId = (state.hands['p-alice'] ?? [])[0]!.id;
     expectRejected(
       applyCommand(state, {
@@ -111,7 +111,7 @@ describe('playing a plain number card', () => {
 });
 
 describe('drawing', () => {
-  it('adds one card and ends the turn', () => {
+  it('adds one card and leaves the turn open', () => {
     const state = makeState({
       hands: { 'p-alice': cards('blue:3'), 'p-bob': cards('red:1') },
       drawPile: cards('green:7', 'green:8'),
@@ -120,21 +120,25 @@ describe('drawing', () => {
 
     expect(next.hands['p-alice']).toHaveLength(2);
     expect(next.drawPile).toHaveLength(1);
-    expect(currentPlayer(next)?.id).toBe('p-bob');
-    expect(eventTypes(events)).toEqual(['cardDrawn', 'turnChanged']);
+    // The turn is not over: UNO gives you the card and lets you decide.
+    expect(currentPlayer(next)?.id).toBe('p-alice');
+    expect(next.drawnCardId).toBe(next.hands['p-alice']?.at(-1)?.id);
+    expect(eventTypes(events)).toEqual(['cardDrawn']);
   });
 
-  it('does not let the drawn card be played in the same turn', () => {
+  it('lets the drawn card be played in the same turn, and nothing else', () => {
     const state = makeState({
       hands: { 'p-alice': cards('blue:3'), 'p-bob': cards('red:1') },
       drawPile: cards('red:7'),
     });
     const next = expectOk(applyCommand(state, { type: 'drawCard', playerId: 'p-alice' })).state;
     const drawn = (next.hands['p-alice'] ?? []).at(-1)!;
+    const held = (next.hands['p-alice'] ?? []).find((card) => card.id !== drawn.id)!;
     expectRejected(
-      applyCommand(next, { type: 'playCard', playerId: 'p-alice', cardId: drawn.id }),
-      'notYourTurn',
+      applyCommand(next, { type: 'playCard', playerId: 'p-alice', cardId: held.id }),
+      'onlyDrawnCardPlayable',
     );
+    expectOk(applyCommand(next, { type: 'playCard', playerId: 'p-alice', cardId: drawn.id }));
   });
 });
 
@@ -151,13 +155,10 @@ describe('helpers', () => {
 
   it('derives a play context from state', () => {
     const state = makeState({ discardPile: cards('blue:4'), activeColor: 'blue' });
+    // Two fields, which is the whole of UNO's matching rule.
     expect(playContextFromState(state)).toEqual({
       activeColor: 'blue',
       topCard: state.discardPile[0],
-      openTakiColor: null,
-      takiSwitchOpen: false,
-      pendingDraw: 0,
-      freePlay: false,
     });
   });
 });

@@ -213,7 +213,7 @@ describe('deciding again when the pause is over', () => {
     box.fire();
 
     expect(box.submitted).toHaveLength(1);
-    expect(box.submitted[0]?.move.action).toEqual({ type: 'declareLastCard' });
+    expect(box.submitted[0]?.move.action).toEqual({ type: 'declareUno' });
   });
 
   it('gives up on a move the table refused, and lets another seat move instead', () => {

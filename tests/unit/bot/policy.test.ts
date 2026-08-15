@@ -84,7 +84,7 @@ describe('answering an open +3', () => {
     // one would be a rejection every heartbeat for as long as the window is open.
     // Cat is on one card, so this also pins that Ben's *only* reason to act would
     // have been the breaker it does not hold — the catch is Cat's business below.
-    expect(decide(state, BEN)?.action).toEqual({ type: 'catchLastCard', targetId: CAT });
+    expect(decide(state, BEN)?.action).toEqual({ type: 'catchUno', targetId: CAT });
   });
 
   it('waits, rather than playing on, when the +3 it played is still open', () => {
@@ -113,7 +113,7 @@ describe('answering an open +3', () => {
       plusThree: { playerId: ANN, awaiting: [CAT] },
       currentPlayerIndex: 0,
     });
-    expect(decide(state, BEN)?.action).toEqual({ type: 'declareLastCard' });
+    expect(decide(state, BEN)?.action).toEqual({ type: 'declareUno' });
   });
 });
 
@@ -121,10 +121,10 @@ describe('a +2 run', () => {
   it('raises it with a +2 rather than cancelling with a King', () => {
     const hands = {
       [ANN]: cards('red:5'),
-      [BEN]: cards('blue:plusTwo', 'king', 'green:4'),
+      [BEN]: cards('blue:drawTwo', 'king', 'green:4'),
       [CAT]: cards('red:3'),
     };
-    const state = table({ hands, currentPlayerIndex: 1, pendingDraw: 2, discardPile: cards('red:plusTwo') });
+    const state = table({ hands, currentPlayerIndex: 1, pendingDraw: 2, discardPile: cards('red:drawTwo') });
     expect(decide(state, BEN)?.action).toEqual({
       type: 'playCard',
       cardId: idOfKind(hands[BEN], 'plusTwo'),
@@ -133,7 +133,7 @@ describe('a +2 run', () => {
 
   it('cancels with a King when that is all it has', () => {
     const hands = { [ANN]: cards('red:5'), [BEN]: cards('king', 'green:4'), [CAT]: cards('red:3') };
-    const state = table({ hands, currentPlayerIndex: 1, pendingDraw: 4, discardPile: cards('red:plusTwo') });
+    const state = table({ hands, currentPlayerIndex: 1, pendingDraw: 4, discardPile: cards('red:drawTwo') });
     expect(decide(state, BEN)?.action).toEqual({ type: 'playCard', cardId: idOfKind(hands[BEN], 'king') });
   });
 
@@ -142,7 +142,7 @@ describe('a +2 run', () => {
       hands: { [ANN]: cards('red:5'), [BEN]: cards('green:4', 'blue:7'), [CAT]: cards('red:3') },
       currentPlayerIndex: 1,
       pendingDraw: 6,
-      discardPile: cards('red:plusTwo'),
+      discardPile: cards('red:drawTwo'),
     });
     expect(decide(state, BEN)?.action).toEqual({ type: 'drawCard' });
   });
@@ -159,7 +159,7 @@ describe('inside its own Taki sequence', () => {
     });
 
   it('spends the numbers first and keeps the punishing card for the close', () => {
-    const hand = cards('red:plusTwo', 'red:5', 'red:stop');
+    const hand = cards('red:drawTwo', 'red:5', 'red:skip');
     const state = sequence(hand);
     const first = decide(state, ANN);
     expect(first?.action).toEqual({ type: 'playCard', cardId: idOfKind(hand, 'number') });
@@ -168,7 +168,7 @@ describe('inside its own Taki sequence', () => {
   });
 
   it('closes when nothing of the sequence colour is left', () => {
-    const state = sequence(cards('blue:5', 'green:stop'));
+    const state = sequence(cards('blue:5', 'green:skip'));
     expect(decide(state, ANN)?.action).toEqual({ type: 'closeTaki' });
   });
 
@@ -183,7 +183,7 @@ describe('inside its own Taki sequence', () => {
   });
 
   it('spends another Taki of the sequence colour like any other card of it', () => {
-    const hand = cards('red:taki', 'red:stop');
+    const hand = cards('red:taki', 'red:skip');
     const state = sequence(hand);
     // Numbers and Takis go down first; the Stop is kept to close on.
     expect(decide(state, ANN)?.action).toEqual({ type: 'playCard', cardId: idOfKind(hand, 'taki') });
@@ -198,7 +198,7 @@ describe('inside its own Taki sequence', () => {
 
 describe('an ordinary turn', () => {
   it('prefers a +3 to anything else it holds', () => {
-    const hand = cards('plusThree', 'red:5', 'red:stop');
+    const hand = cards('wildDrawFour', 'red:5', 'red:skip');
     const state = table({
       hands: { [ANN]: hand, [BEN]: cards('blue:4'), [CAT]: cards('green:4') },
       currentPlayerIndex: 0,
@@ -206,7 +206,7 @@ describe('an ordinary turn', () => {
     });
     expect(decide(state, ANN)?.action).toEqual({
       type: 'playCard',
-      cardId: idOfKind(hand, 'plusThree'),
+      cardId: idOfKind(hand, 'wildDrawFour'),
     });
   });
 
@@ -221,7 +221,7 @@ describe('an ordinary turn', () => {
   });
 
   it('names the colour it is strongest in when it plays a Change Colour', () => {
-    const hand = cards('colorChange', 'green:4', 'green:7', 'blue:5');
+    const hand = cards('wild', 'green:4', 'green:7', 'blue:5');
     const state = table({
       hands: { [ANN]: hand, [BEN]: cards('blue:4'), [CAT]: cards('green:4') },
       currentPlayerIndex: 0,
@@ -232,7 +232,7 @@ describe('an ordinary turn', () => {
     // the table is repainted green — the colour with two cards behind it.
     expect(decide(state, ANN)?.action).toEqual({
       type: 'playCard',
-      cardId: idOfKind(hand, 'colorChange'),
+      cardId: idOfKind(hand, 'wild'),
       chosenColor: 'green',
     });
   });
@@ -240,7 +240,7 @@ describe('an ordinary turn', () => {
   it('names a colour even when nothing coloured is left to count', () => {
     // One colourless card, which is also the winning one: the choice has nothing to
     // count and still has to be made.
-    const hand = cards('colorChange');
+    const hand = cards('wild');
     const state = table({
       hands: { [ANN]: hand, [BEN]: cards('blue:4', 'blue:6'), [CAT]: cards('green:4', 'green:6') },
       currentPlayerIndex: 0,
@@ -312,7 +312,7 @@ describe('the last card', () => {
       discardPile: cards('red:9'),
       activeColor: 'red',
     });
-    expect(decide(state, ANN)?.action).toEqual({ type: 'declareLastCard' });
+    expect(decide(state, ANN)?.action).toEqual({ type: 'declareUno' });
   });
 
   it('declares out of turn, and only once', () => {
@@ -321,9 +321,9 @@ describe('the last card', () => {
       currentPlayerIndex: 0,
       discardPile: cards('red:9'),
     };
-    expect(decide(table(base), BEN)?.action).toEqual({ type: 'declareLastCard' });
-    expect(decide(table({ ...base, declaredLastCard: [BEN] }), BEN)?.action).not.toEqual({
-      type: 'declareLastCard',
+    expect(decide(table(base), BEN)?.action).toEqual({ type: 'declareUno' });
+    expect(decide(table({ ...base, declaredUno: [BEN] }), BEN)?.action).not.toEqual({
+      type: 'declareUno',
     });
   });
 });
@@ -336,14 +336,14 @@ describe('calling somebody out', () => {
       discardPile: cards('red:9'),
     });
     // Ann is on turn but a win is not available, so the shout is what it owes.
-    expect(decide(state, CAT)?.action).toEqual({ type: 'catchLastCard', targetId: BEN });
+    expect(decide(state, CAT)?.action).toEqual({ type: 'catchUno', targetId: BEN });
   });
 
   it('leaves a seat that has declared alone', () => {
     const state = table({
       hands: { [ANN]: cards('red:5', 'red:7'), [BEN]: cards('blue:4'), [CAT]: cards('green:4', 'green:5') },
       currentPlayerIndex: 0,
-      declaredLastCard: [BEN],
+      declaredUno: [BEN],
       discardPile: cards('red:9'),
     });
     expect(decide(state, CAT)).toBeNull();
@@ -526,7 +526,7 @@ describe('when there is nothing to decide', () => {
   });
 
   it('scores a table with nobody left to punish without falling over', () => {
-    const hand = cards('red:plusTwo', 'red:5');
+    const hand = cards('red:drawTwo', 'red:5');
     const state = makeState({
       players: [
         { id: ANN, name: 'Ann' },

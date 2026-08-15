@@ -144,7 +144,7 @@ describe('the other players', () => {
       publicState: {
         ...fixture.publicState,
         currentPlayerId: HOST_ID,
-        declaredLastCard: declared,
+        declaredUno: declared,
         players: [
           { id: HOST_ID, name: 'דנה', cardCount: 1 },
           { id: GUEST_ID, name: 'אלי', cardCount: 1 },

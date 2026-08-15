@@ -10,7 +10,7 @@ const he = createTranslator('he');
 const nameOf = (playerId: string): string => (playerId === 'p1' ? 'Dana' : 'Eli');
 
 const red5: Card = { id: 'x1', kind: 'number', color: 'red', value: 5 };
-const blueStop: Card = { id: 'x2', kind: 'stop', color: 'blue' };
+const blueStop: Card = { id: 'x2', kind: 'skip', color: 'blue' };
 const superTaki: Card = { id: 'x3', kind: 'superTaki' };
 
 describe('card text', () => {

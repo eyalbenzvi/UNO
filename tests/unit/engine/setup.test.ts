@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createGame } from '../../../src/features/game/engine/engine.ts';
-import { CARDS_DEALT_PER_PLAYER, DECK_SIZE, isNumberCard } from '../../../src/features/game/engine/cards.ts';
+import { CARDS_DEALT_PER_PLAYER, DECK_SIZE, isWildCard } from '../../../src/features/game/engine/cards.ts';
 import { players } from '../helpers/engineFixtures.ts';
 
 function expectOk(result: ReturnType<typeof createGame>) {
@@ -46,12 +46,14 @@ describe('createGame', () => {
     expect(total).toBe(DECK_SIZE);
   });
 
-  it('starts with a number card face up and the matching active colour', () => {
+  it('starts with a coloured card face up and the matching active colour', () => {
     for (let seed = 0; seed < 40; seed += 1) {
       const { state } = expectOk(createGame(players('A', 'B', 'C'), seed));
       const top = state.discardPile.at(-1);
       expect(top).toBeDefined();
-      expect(isNumberCard(top!)).toBe(true);
+      // Any card but a wild: an action card turned up is a real opening, and its
+      // effect falls on the first player.
+      expect(isWildCard(top!)).toBe(false);
       expect(state.activeColor).toBe((top as { color: string }).color);
       expect(state.discardPile).toHaveLength(1);
     }
@@ -63,8 +65,8 @@ describe('createGame', () => {
     expect(state.phase).toBe('playing');
     expect(state.currentPlayerIndex).toBe(0);
     expect(state.direction).toBe(1);
-    expect(state.takiMode).toBeNull();
-    expect(state.pendingPlus).toBe(false);
+    expect(state.challenge).toBeNull();
+    expect(state.drawnCardId).toBeNull();
     expect(state.winnerId).toBeNull();
     expect(state.seed).toBe(7);
     expect(events.map((event) => event.type)).toEqual(['gameStarted', 'turnChanged']);
@@ -83,7 +85,7 @@ describe('createGame', () => {
     const { state } = expectOk(createGame(players('A', 'B'), 31));
     const handA = state.hands['p-a'] ?? [];
     const handB = state.hands['p-b'] ?? [];
-    expect(new Set([...handA, ...handB].map((card) => card.id)).size).toBe(16);
+    expect(new Set([...handA, ...handB].map((card) => card.id)).size).toBe(14);
   });
 
   it('can continue an existing version sequence', () => {

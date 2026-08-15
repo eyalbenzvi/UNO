@@ -9,15 +9,7 @@ import {
 import { card, cards } from '../helpers/engineFixtures.ts';
 
 function context(overrides: Partial<PlayContext> = {}): PlayContext {
-  return {
-    activeColor: 'red',
-    topCard: card('red:5'),
-    openTakiColor: null,
-    takiSwitchOpen: false,
-    pendingDraw: 0,
-    freePlay: false,
-    ...overrides,
-  };
+  return { activeColor: 'red', topCard: card('red:5'), ...overrides };
 }
 
 describe('card matching', () => {
@@ -29,109 +21,79 @@ describe('card matching', () => {
     expect(isCardPlayable(card('blue:5'), context())).toBe(true);
   });
 
-  it('rejects a mismatching colour and value', () => {
+  it('matches a nought like any other number', () => {
+    expect(isCardPlayable(card('blue:0'), context({ topCard: card('red:0') }))).toBe(true);
+    expect(isCardPlayable(card('blue:0'), context())).toBe(false);
+  });
+
+  it('accepts a card with the same action', () => {
+    expect(isCardPlayable(card('blue:skip'), context({ topCard: card('red:skip') }))).toBe(true);
+    expect(isCardPlayable(card('blue:reverse'), context({ topCard: card('red:reverse') }))).toBe(true);
+    expect(isCardPlayable(card('blue:drawTwo'), context({ topCard: card('red:drawTwo') }))).toBe(true);
+  });
+
+  it('does not match one action against another', () => {
+    expect(isCardPlayable(card('blue:reverse'), context({ topCard: card('red:skip') }))).toBe(false);
+  });
+
+  it('rejects a mismatching colour and symbol', () => {
     expect(isCardPlayable(card('blue:3'), context())).toBe(false);
   });
 
-  it('accepts any wild card', () => {
-    expect(isCardPlayable(card('colorChange'), context())).toBe(true);
-    expect(isCardPlayable(card('superTaki'), context())).toBe(true);
+  it('accepts either wild, on anything', () => {
+    for (const top of ['red:5', 'blue:skip', 'green:0'] as const) {
+      expect(isCardPlayable(card('wild'), context({ topCard: card(top) }))).toBe(true);
+      expect(isCardPlayable(card('wildDrawFour'), context({ topCard: card(top) }))).toBe(true);
+    }
   });
 
-  it('matches action cards by symbol across colours', () => {
-    const ctx = context({ topCard: card('red:stop'), activeColor: 'red' });
-    expect(isCardPlayable(card('green:stop'), ctx)).toBe(true);
-    expect(isCardPlayable(card('green:plus'), ctx)).toBe(false);
-    expect(isCardPlayable(card('red:plus'), ctx)).toBe(true);
-  });
-
-  it('matches taki cards by symbol across colours', () => {
-    const ctx = context({ topCard: card('yellow:taki'), activeColor: 'yellow' });
-    expect(isCardPlayable(card('blue:taki'), ctx)).toBe(true);
-    expect(isCardPlayable(card('blue:4'), ctx)).toBe(false);
-  });
-
-  it('takes a Super Taki as a Taki, in both directions', () => {
+  it('accepts a Wild Draw Four even while the hand could follow the colour', () => {
     /*
-     * The reported bug, exactly: a Super Taki closed on top, the colour it left
-     * behind red, and a yellow Taki in hand that the table refused. The card says
-     * TAKI on both sides of that comparison.
+     * The bluff is the point. A gate here would make the challenge unreachable, and
+     * the restriction is enforced by the challenge rather than by the rule — see
+     * `isWildDrawFourHonest`.
      */
-    const onSuper = context({ topCard: card('superTaki'), activeColor: 'red' });
-    expect(isCardPlayable(card('yellow:taki'), onSuper)).toBe(true);
-    expect(isCardPlayable(card('red:taki'), onSuper)).toBe(true);
-    // Nothing else about the Super Taki became a symbol match: it repaints nothing,
-    // so a yellow anything-else is still refused on a red table.
-    expect(isCardPlayable(card('yellow:stop'), onSuper)).toBe(false);
-    expect(isCardPlayable(card('yellow:4'), onSuper)).toBe(false);
-
-    // And the other way round, which held already because a Super Taki is wild.
-    const onTaki = context({ topCard: card('yellow:taki'), activeColor: 'yellow' });
-    expect(isCardPlayable(card('superTaki'), onTaki)).toBe(true);
+    expect(isCardPlayable(card('wildDrawFour'), context())).toBe(true);
   });
 
-  it('uses the chosen colour after a wild card, with no symbol match available', () => {
-    const ctx = context({ topCard: card('colorChange'), activeColor: 'green' });
-    expect(isCardPlayable(card('green:1'), ctx)).toBe(true);
-    expect(isCardPlayable(card('red:1'), ctx)).toBe(false);
-    expect(isCardPlayable(card('colorChange'), ctx)).toBe(true);
+  it('follows the active colour rather than the top card when they differ', () => {
+    // After a wild the table is in a colour the top card is not printed in.
+    const afterWild = context({ activeColor: 'green', topCard: card('wild') });
+    expect(isCardPlayable(card('green:2'), afterWild)).toBe(true);
+    expect(isCardPlayable(card('red:2'), afterWild)).toBe(false);
   });
 
-  it('falls back to colour matching when there is no top card', () => {
-    const ctx = context({ topCard: null, activeColor: 'blue' });
-    expect(isCardPlayable(card('blue:9'), ctx)).toBe(true);
-    expect(isCardPlayable(card('red:9'), ctx)).toBe(false);
-  });
-
-  describe('inside an open taki sequence', () => {
-    const ctx = context({ openTakiColor: 'green', activeColor: 'green' });
-
-    it('allows any card of the sequence colour', () => {
-      expect(isCardPlayable(card('green:1'), ctx)).toBe(true);
-      expect(isCardPlayable(card('green:stop'), ctx)).toBe(true);
-      expect(isCardPlayable(card('green:plus'), ctx)).toBe(true);
-      expect(isCardPlayable(card('green:direction'), ctx)).toBe(true);
-      expect(isCardPlayable(card('green:taki'), ctx)).toBe(true);
-    });
-
-    it('rejects other colours even when the symbol matches', () => {
-      expect(isCardPlayable(card('red:1'), { ...ctx, topCard: card('green:1') })).toBe(false);
-    });
-
-    it('rejects wild cards', () => {
-      expect(isCardPlayable(card('colorChange'), ctx)).toBe(false);
-      expect(isCardPlayable(card('superTaki'), ctx)).toBe(false);
-    });
-  });
-
-  it('lists and detects playable cards in a hand', () => {
-    const hand = cards('red:1', 'blue:3', 'colorChange');
-    const ids = getPlayableCardIds(hand, context());
-    expect(ids).toHaveLength(2);
-    expect(hasPlayableCard(hand, context())).toBe(true);
-    expect(hasPlayableCard(cards('blue:3'), context())).toBe(false);
-    expect(hasPlayableCard([], context())).toBe(false);
+  it('accepts anything at all when nothing has been played yet', () => {
+    const empty = context({ topCard: null });
+    expect(isCardPlayable(card('red:2'), empty)).toBe(true);
+    // No top card means no symbol to match, so only the colour can carry it.
+    expect(isCardPlayable(card('blue:2'), empty)).toBe(false);
   });
 });
 
-describe('stepIndex', () => {
-  it('moves forwards and wraps', () => {
+describe('reading a hand', () => {
+  it('lists the playable ids and nothing else', () => {
+    const hand = cards('red:3', 'blue:9', 'blue:5', 'wild');
+    const ids = getPlayableCardIds(hand, context());
+    expect(ids).toHaveLength(3);
+    expect(ids).not.toContain(hand[1]!.id);
+  });
+
+  it('answers whether there is anything to play', () => {
+    expect(hasPlayableCard(cards('blue:9', 'green:8'), context())).toBe(false);
+    expect(hasPlayableCard(cards('blue:9', 'wild'), context())).toBe(true);
+  });
+});
+
+describe('stepping round the table', () => {
+  it('wraps in both directions', () => {
     expect(stepIndex(0, 1, 3)).toBe(1);
     expect(stepIndex(2, 1, 3)).toBe(0);
-  });
-
-  it('moves backwards and wraps', () => {
     expect(stepIndex(0, -1, 3)).toBe(2);
-    expect(stepIndex(2, -1, 3)).toBe(1);
+    expect(stepIndex(1, -1, 3)).toBe(0);
   });
 
-  it('alternates between two seats in both directions', () => {
-    expect(stepIndex(0, 1, 2)).toBe(1);
-    expect(stepIndex(0, -1, 2)).toBe(1);
-    expect(stepIndex(1, -1, 2)).toBe(0);
-  });
-
-  it('rejects an empty table', () => {
+  it('refuses an empty table rather than looping for ever', () => {
     expect(() => stepIndex(0, 1, 0)).toThrow(RangeError);
   });
 });

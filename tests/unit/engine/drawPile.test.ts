@@ -14,7 +14,8 @@ describe('draw pile recycling', () => {
 
     const { state: next, events } = expectOk(applyCommand(state, { type: 'drawCard', playerId: 'p-alice' }));
 
-    expect(eventTypes(events)).toEqual(['drawPileRecycled', 'cardDrawn', 'turnChanged']);
+    // No `turnChanged`: drawing does not end a turn in UNO.
+    expect(eventTypes(events)).toEqual(['drawPileRecycled', 'cardDrawn']);
     expect(topCard(next)?.id).toBe(discard.at(-1)!.id);
     expect(next.discardPile).toHaveLength(1);
     // Four cards were recycled, one of which was immediately drawn.
@@ -74,28 +75,33 @@ describe('draw pile recycling', () => {
 });
 
 describe('exhausted draw pile', () => {
-  it('reports exhaustion and still ends the turn', () => {
+  it('reports exhaustion and leaves the turn passable', () => {
     const state = makeState({
       hands: { 'p-alice': cards('blue:8'), 'p-bob': cards('red:1') },
       drawPile: [],
       discardPile: cards('red:9'),
     });
     const { state: next, events } = expectOk(applyCommand(state, { type: 'drawCard', playerId: 'p-alice' }));
-    expect(eventTypes(events)).toEqual(['drawPileExhausted', 'turnChanged']);
+    expect(eventTypes(events)).toEqual(['drawPileExhausted']);
     expect(next.hands['p-alice']).toHaveLength(1);
-    expect(currentPlayer(next)?.id).toBe('p-bob');
+    expect(next.drawnCardId).toBeNull();
+    expect(currentPlayer(next)?.id).toBe('p-alice');
   });
 
-  it('lets a plus obligation lapse when there is nothing to draw', () => {
+  it('still lets the turn end when there was nothing to draw', () => {
+    /*
+     * The one case where passing is legal without having drawn. Refusing it as well
+     * would leave the turn with no legal move at all, which is the deadlock the
+     * exception exists to prevent.
+     */
     const state = makeState({
-      pendingPlus: true,
       hands: { 'p-alice': cards('blue:8'), 'p-bob': cards('red:1') },
       drawPile: [],
       discardPile: cards('red:9'),
       activeColor: 'red',
     });
-    const { state: next } = expectOk(applyCommand(state, { type: 'drawCard', playerId: 'p-alice' }));
-    expect(next.pendingPlus).toBe(false);
+    const drew = expectOk(applyCommand(state, { type: 'drawCard', playerId: 'p-alice' })).state;
+    const { state: next } = expectOk(applyCommand(drew, { type: 'passTurn', playerId: 'p-alice' }));
     expect(currentPlayer(next)?.id).toBe('p-bob');
   });
 });
