@@ -8,12 +8,12 @@ const IN_ROOM: ReadonlySet<Screen> = new Set<Screen>(['lobby', 'game', 'over']);
 
 /** Marker on the history entries this app pushes, so it can recognise its own. */
 interface ShellHistoryState {
-  readonly superTakiDepth: number;
+  readonly unoDepth: number;
 }
 
 function depthOf(state: unknown): number {
-  return typeof state === 'object' && state !== null && 'superTakiDepth' in state
-    ? Number((state as ShellHistoryState).superTakiDepth)
+  return typeof state === 'object' && state !== null && 'unoDepth' in state
+    ? Number((state as ShellHistoryState).unoDepth)
     : 0;
 }
 
@@ -59,7 +59,7 @@ export function useShellEffects(screen: Screen): void {
       return;
     }
     depth.current += 1;
-    const state: ShellHistoryState = { superTakiDepth: depth.current };
+    const state: ShellHistoryState = { unoDepth: depth.current };
     window.history.pushState(state, '');
   }, [screen]);
 
@@ -74,7 +74,7 @@ export function useShellEffects(screen: Screen): void {
       const state = useAppStore.getState();
       if (state.inRoom && IN_ROOM.has(state.screen)) {
         depth.current += 1;
-        window.history.pushState({ superTakiDepth: depth.current } satisfies ShellHistoryState, '');
+        window.history.pushState({ unoDepth: depth.current } satisfies ShellHistoryState, '');
         state.requestLeave();
         return;
       }

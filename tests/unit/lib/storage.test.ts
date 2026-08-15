@@ -9,11 +9,25 @@ describe('namespaced storage', () => {
   it('round trips raw values under a namespace', () => {
     writeRaw('theme', 'dark');
     expect(readRaw('theme')).toBe('dark');
-    expect(localStorage.getItem('superTaki:theme')).toBe('dark');
+    expect(localStorage.getItem('uno:theme')).toBe('dark');
   });
 
   it('returns null for missing keys', () => {
     expect(readRaw('nothing')).toBeNull();
+  });
+
+  /*
+   * A GitHub Pages project site shares its origin with every other project site
+   * under the same account, and `localStorage` is keyed by origin. If this game
+   * ever adopted a sibling game's prefix the two would be reading and writing one
+   * store: this game's resume offer would carry the other's room code, pointed at
+   * the wrong room server. The prefix is the only thing keeping them apart, so it
+   * is asserted rather than trusted.
+   */
+  it('does not share a namespace with the game this one was built from', () => {
+    writeRaw('resumableRoom', '{}');
+    expect(localStorage.getItem('superTaki:resumableRoom')).toBeNull();
+    expect(localStorage.getItem('uno:resumableRoom')).toBe('{}');
   });
 
   it('removes values', () => {

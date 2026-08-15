@@ -22,7 +22,7 @@ import { DIAGNOSTICS_CAPACITY } from '../features/game/network/timing.ts';
  * survives the reload it is most often needed to explain, and dies with the tab.
  */
 
-const STORAGE_KEY = 'superTaki:diagnostics';
+const STORAGE_KEY = 'uno:diagnostics';
 
 export type DiagnosticKind =
   | 'phase'

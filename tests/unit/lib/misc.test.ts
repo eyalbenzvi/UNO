@@ -68,7 +68,7 @@ describe('logger', () => {
 
     setLoggingEnabled(true);
     log.debug('shown');
-    expect(debug).toHaveBeenCalledWith('[super-taki:test]', 'shown');
+    expect(debug).toHaveBeenCalledWith('[uno:test]', 'shown');
     setLoggingEnabled(previous);
   });
 

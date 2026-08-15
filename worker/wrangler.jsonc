@@ -2,15 +2,20 @@
   // One Durable Object per room code, and the object is the game: it holds every
   // hand, runs the rules and keeps every deadline on its single alarm.
   //
-  // `name` and the `ROOM` binding are deliberately unchanged from when this was a
-  // relay. The deployed URL, the `RELAY_URL` repository variable and every page
-  // already built against it all point at `supertaki-relay`; renaming would break
-  // the lot in exchange for a better word.
+  // The name is this game's own, and that is load-bearing rather than cosmetic. A
+  // room is addressed by `idFromName(roomCode)` inside one worker's Durable Object
+  // namespace, and a room code is six digits — so two games deployed under one
+  // worker name would share a single code space, and a collision would resolve as
+  // the corrupt-storage wipe below. Players of one game would silently delete live
+  // rooms belonging to the other. One game, one worker, one namespace.
+  //
+  // The `ROOM` binding keeps its name because it is internal to this worker and
+  // names what it holds.
   //
   // Free plan throughout — Durable Objects here are SQLite-backed, which is the
   // variant the free tier includes, and hibernation is what keeps an idle room free.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "supertaki-relay",
+  "name": "uno-room",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-01",
   "observability": { "enabled": true },

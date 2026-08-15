@@ -295,16 +295,16 @@ describe('joining a room through the store', () => {
 
   it('keeps the credential through a dropped socket, and only forgets it on leaving', async () => {
     await createRoom();
-    const stored = localStorage.getItem('superTaki:resumableRoom');
+    const stored = localStorage.getItem('uno:resumableRoom');
     expect(stored).not.toBeNull();
 
     // A socket that simply dropped is not a departure: the credential survives it,
     // because it is the one thing needed to come back.
     await flush();
-    expect(localStorage.getItem('superTaki:resumableRoom')).toBe(stored);
+    expect(localStorage.getItem('uno:resumableRoom')).toBe(stored);
 
     store().leaveRoom();
-    expect(localStorage.getItem('superTaki:resumableRoom')).toBeNull();
+    expect(localStorage.getItem('uno:resumableRoom')).toBeNull();
   });
 });
 
@@ -368,22 +368,22 @@ describe('preferences and navigation', () => {
   it('persists language and theme and applies them to the document', () => {
     store().setLanguage('en');
     expect(document.documentElement.dir).toBe('ltr');
-    expect(localStorage.getItem('superTaki:language')).toBe('en');
+    expect(localStorage.getItem('uno:language')).toBe('en');
 
     store().setTheme('dark');
     expect(document.documentElement.dataset.theme).toBe('dark');
-    expect(localStorage.getItem('superTaki:theme')).toBe('dark');
+    expect(localStorage.getItem('uno:theme')).toBe('dark');
   });
 
   it('sanitises and persists the display name', () => {
     store().setDisplayName('  אלי  ');
     expect(store().displayName).toBe('אלי');
-    expect(localStorage.getItem('superTaki:displayName')).toBe('אלי');
+    expect(localStorage.getItem('uno:displayName')).toBe('אלי');
   });
 
   it('forgets stored resume metadata on request', () => {
     localStorage.setItem(
-      'superTaki:resumableRoom',
+      'uno:resumableRoom',
       JSON.stringify({
         roomCode: TEST_ROOM,
         playerId: 'pl_x',

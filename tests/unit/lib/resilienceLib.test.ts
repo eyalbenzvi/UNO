@@ -144,7 +144,7 @@ describe('diagnostics', () => {
      * would never hold the lines anybody wanted.
      */
     window.sessionStorage.setItem(
-      'superTaki:diagnostics',
+      'uno:diagnostics',
       JSON.stringify([
         { at: 1_700_000_000_000, monotonic: 12, kind: 'connectFailed', detail: 'from before' },
         { nonsense: true },
@@ -160,7 +160,7 @@ describe('diagnostics', () => {
   });
 
   it('ignores a stored log that is not a list at all', () => {
-    window.sessionStorage.setItem('superTaki:diagnostics', '{"not":"an array"}');
+    window.sessionStorage.setItem('uno:diagnostics', '{"not":"an array"}');
     __resetDiagnosticsForTests();
     expect(readDiagnostics()).toHaveLength(0);
   });

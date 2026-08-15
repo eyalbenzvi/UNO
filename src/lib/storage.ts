@@ -5,7 +5,19 @@
  * must keep working without it, so every operation degrades to a no-op.
  */
 
-const PREFIX = 'superTaki:';
+/**
+ * The namespace, and it has to be this game's own.
+ *
+ * `localStorage` is keyed by origin, not by path, and a GitHub Pages project
+ * site shares its origin with every other project site under the same account.
+ * A prefix inherited from a sibling game would therefore be *the same storage*:
+ * the resume offer on this game's home screen would carry a room code belonging
+ * to the other one, pointed at the wrong room server, and the display name,
+ * theme and language would silently cross between them. The prefix is what keeps
+ * two games on one origin apart, so it is the one string here that must never be
+ * copied from anywhere.
+ */
+const PREFIX = 'uno:';
 
 export function readRaw(key: string): string | null {
   try {

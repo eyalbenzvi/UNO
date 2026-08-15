@@ -81,6 +81,6 @@ jobs:
             echo "Worker URL: ${DEPLOYMENT_URL:-see the wrangler output above}"
             echo ""
             echo 'Set the repository variable `RELAY_URL` to this URL with the'
-            echo '`wss://` scheme (for example `wss://supertaki-relay.example.workers.dev`)'
+            echo '`wss://` scheme (for example `wss://uno-room.example.workers.dev`)'
             echo 'so the Pages build points the game at it.'
           } >> "$GITHUB_STEP_SUMMARY"

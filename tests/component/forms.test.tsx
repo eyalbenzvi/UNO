@@ -231,6 +231,6 @@ describe('join room form', () => {
     await user.click(screen.getByRole('radio', { name: '3' }));
     // The store's own action persists the name; assert through the store.
     useAppStore.getState().setDisplayName('דנה');
-    expect(localStorage.getItem('superTaki:displayName')).toBe('דנה');
+    expect(localStorage.getItem('uno:displayName')).toBe('דנה');
   });
 });

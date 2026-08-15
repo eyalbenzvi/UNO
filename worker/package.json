@@ -1,5 +1,5 @@
 {
-  "name": "super-taki-relay",
+  "name": "uno-room",
   "version": "1.0.0",
   "private": true,
   "description": "Super Taki rooms: one Durable Object per room code, and the object is the game. Zero cost.",
