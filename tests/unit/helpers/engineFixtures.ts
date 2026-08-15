@@ -26,7 +26,7 @@ function nextId(prefix: string): string {
 
 /**
  * Compact card factory for tests.
- * `'red:5'` -> red 5, `'blue:stop'` -> blue Stop, `'king'` / `'superTaki'` -> colourless.
+ * `'red:5'` -> red 5, `'blue:skip'` -> blue Skip, `'wild'` / `'wildDrawFour'` -> colourless.
  */
 export function card(spec: string): Card {
   if ((WILD_KINDS as readonly string[]).includes(spec)) {
@@ -61,20 +61,25 @@ export interface StateOverrides {
   mode?: GameState['mode'];
   /** How far the table leans towards each seat. Defaults to not at all. */
   assist?: GameState['assist'];
-  /** Hands already emptied, for a stairs round. Defaults to nought for every seat. */
-  stairs?: Record<PlayerId, number>;
   hands?: Record<PlayerId, Card[]>;
   drawPile?: Card[];
   discardPile?: Card[];
   activeColor?: CardColor;
   direction?: 1 | -1;
   currentPlayerIndex?: number;
-  takiMode?: GameState['takiMode'];
-  pendingPlus?: boolean;
-  pendingDraw?: number;
-  freePlay?: boolean;
-  plusThree?: GameState['plusThree'];
-  declaredLastCard?: readonly PlayerId[];
+  drawnCardId?: string | null;
+  challenge?: GameState['challenge'];
+  declaredUno?: readonly PlayerId[];
+  /**
+   * Seats that can still be caught, and the turn they became catchable on.
+   *
+   * Defaulted to "everybody on a single uncalled card is catchable now", because
+   * that is what a test setting up a catch almost always means — and stamping it by
+   * hand in every such test would make the window's own tests indistinguishable
+   * from the tests that merely need it open.
+   */
+  unoExposed?: Record<PlayerId, number>;
+  points?: Record<PlayerId, number>;
   phase?: GameState['phase'];
   winnerId?: PlayerId | null;
   endReason?: GameState['endReason'];
@@ -86,11 +91,18 @@ export interface StateOverrides {
 export function makeState(overrides: StateOverrides = {}): GameState {
   const list = overrides.players ?? players('Alice', 'Bob');
   const hands: Record<PlayerId, Card[]> = {};
-  const stairs: Record<PlayerId, number> = {};
   for (const player of list) {
     hands[player.id] = overrides.hands?.[player.id] ?? cards('red:1');
-    stairs[player.id] = overrides.stairs?.[player.id] ?? 0;
   }
+  const turnSeq = overrides.turnSeq ?? 0;
+  const declaredUno = overrides.declaredUno ?? [];
+  const exposed: Record<PlayerId, number> =
+    overrides.unoExposed ??
+    Object.fromEntries(
+      list
+        .filter((player) => (hands[player.id] ?? []).length === 1 && !declaredUno.includes(player.id))
+        .map((player) => [player.id, turnSeq]),
+    );
   const discardPile = overrides.discardPile ?? cards('red:9');
   const top = discardPile[discardPile.length - 1];
   const fallbackColor: CardColor = (top ? cardColor(top) : null) ?? 'red';
@@ -99,7 +111,6 @@ export function makeState(overrides: StateOverrides = {}): GameState {
     version: overrides.version ?? 1,
     phase: overrides.phase ?? 'playing',
     mode: overrides.mode ?? 'classic',
-    stairs,
     players: list,
     assist: overrides.assist ?? {},
     hands,
@@ -108,16 +119,15 @@ export function makeState(overrides: StateOverrides = {}): GameState {
     activeColor: overrides.activeColor ?? fallbackColor,
     direction: overrides.direction ?? 1,
     currentPlayerIndex: overrides.currentPlayerIndex ?? 0,
-    takiMode: overrides.takiMode ?? null,
-    pendingPlus: overrides.pendingPlus ?? false,
-    pendingDraw: overrides.pendingDraw ?? 0,
-    freePlay: overrides.freePlay ?? false,
-    plusThree: overrides.plusThree ?? null,
-    declaredLastCard: overrides.declaredLastCard ?? [],
+    drawnCardId: overrides.drawnCardId ?? null,
+    challenge: overrides.challenge ?? null,
+    declaredUno,
+    unoExposed: exposed,
+    points: overrides.points ?? {},
     rng: createRng(12345),
     winnerId: overrides.winnerId ?? null,
     endReason: overrides.endReason ?? null,
-    turnSeq: overrides.turnSeq ?? 0,
+    turnSeq,
     seed: 12345,
   };
 }
