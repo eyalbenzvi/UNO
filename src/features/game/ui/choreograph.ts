@@ -115,11 +115,13 @@ export function cueFor(beat: Beat, localPlayerId: PlayerId | null): Cue | null {
     switch (event.type) {
       case 'playerWon':
         return 'win';
-      case 'lastCardCaught':
+      case 'unoCaught':
         // Loudest thing at a real table, and it matters to everyone, not just the
         // two people involved.
         return 'caught';
-      case 'drawStacked':
+      case 'challengeResolved':
+        // Somebody is drawing four or six for having been caught out, or for having
+        // accused wrongly. Either way it is the sharpest moment in the game.
         return 'penalty';
       case 'cardDrawn':
         if (mine(event.playerId)) {
@@ -128,7 +130,7 @@ export function cueFor(beat: Beat, localPlayerId: PlayerId | null): Cue | null {
         }
         sawDraw = true;
         break;
-      case 'lastCardDeclared':
+      case 'unoDeclared':
         return 'lastCard';
       case 'cardPlayed':
         sawPlay = true;
@@ -224,48 +226,39 @@ function motionsFor(event: GameEvent, seq: number, options: ChoreographOptions):
       return flights;
     }
 
-    case 'drawStacked':
-      // The run escalating is the most dramatic recurring moment in the game.
-      // `total` is what the next player now owes, so the cue grows with it.
-      return [
-        pulse(id('stack'), 'pile:discard', 'danger', {
-          intensity: Math.min(3, Math.max(1, Math.ceil(event.total / 4))),
-        }),
-      ];
+    case 'challengeOpened':
+      // The table has frozen and one person has to answer. The pulse lands on them,
+      // not on whoever played the card, because they are who everybody is looking at.
+      return [pulse(id('challenge'), seatAnchor(event.targetId, me), 'danger', { intensity: 2 })];
 
-    case 'drawRunCancelled':
+    case 'challengeDeclined':
+      return [pulse(id(`took:${event.playerId}`), seatAnchor(event.playerId, me), 'danger')];
+
+    case 'challengeResolved':
       /*
-       * The mirror of the stack, and it belongs on the same anchor: the pile has
-       * been pulsing danger as the run grew, so the run dying is that same pile
-       * going the other way. Intensity does not scale with the run — the relief is
-       * the same size whether two cards or ten just evaporated.
-       */
-      return [pulse(id('runCancelled'), 'pile:discard', 'success', { intensity: 2 })];
-
-    case 'plusThreePlayed':
-      return [pulse(id('plusThree'), seatAnchor(event.playerId, me), 'danger', { intensity: 2 })];
-
-    case 'plusThreeBroken':
-      /*
-       * One continuous reversal rather than two unrelated flights: the penalty
-       * arrives at whoever holds the breaker, then turns around. This is the one
-       * card interaction nobody understands on first sight, and a motion that
-       * visibly comes back is the clearest reading of "sent back at you".
+       * One continuous reversal rather than two unrelated flights: the accusation
+       * travels from whoever made it, and the cards come back at whoever lost. This
+       * is the one interaction in UNO that nobody follows on first sight, and a
+       * motion that visibly goes out and comes back is the clearest reading of it.
+       *
+       * `targetId` is whoever draws — the bluffer when the call was right, the
+       * challenger themselves when it was wrong — so a wrong call correctly draws a
+       * loop that returns to where it started.
        */
       return [
         {
           kind: 'flight',
-          key: id(`break:in:${event.playerId}`),
-          from: 'pile:discard',
-          to: seatAnchor(event.playerId, me),
+          key: id(`challenge:out:${event.challengerId}`),
+          from: seatAnchor(event.challengerId, me),
+          to: 'pile:discard',
           card: null,
           delayMs: 0,
           durationMs: PULSE_MS,
         },
         {
           kind: 'flight',
-          key: id(`break:out:${event.targetId}`),
-          from: seatAnchor(event.playerId, me),
+          key: id(`challenge:in:${event.targetId}`),
+          from: 'pile:discard',
           to: seatAnchor(event.targetId, me),
           card: null,
           delayMs: PULSE_MS,
@@ -273,17 +266,14 @@ function motionsFor(event: GameEvent, seq: number, options: ChoreographOptions):
         },
       ];
 
-    case 'breakerSpent':
-      return [pulse(id('breakerSpent'), seatAnchor(event.playerId, me), 'danger')];
-
-    case 'lastCardDeclared':
+    case 'unoDeclared':
       return [
         pulse(id(`declared:${event.playerId}`), seatAnchor(event.playerId, me), 'success', {
           durationMs: DECLARE_MS,
         }),
       ];
 
-    case 'lastCardCaught':
+    case 'unoCaught':
       // Directional on purpose: the catch is a social act, and who called it is
       // half of what happened. The penalty travels from the caller to the caught.
       return [
@@ -303,9 +293,6 @@ function motionsFor(event: GameEvent, seq: number, options: ChoreographOptions):
 
     case 'turnSkipped':
       return [pulse(id(`away:${event.playerId}`), seatAnchor(event.playerId, me), 'neutral')];
-
-    case 'extraTurn':
-      return [pulse(id(`extra:${event.playerId}`), seatAnchor(event.playerId, me), 'success')];
 
     case 'directionChanged':
       return [{ kind: 'sweep', key: id('direction'), direction: event.direction, durationMs: SWEEP_MS }];
@@ -337,34 +324,22 @@ function motionsFor(event: GameEvent, seq: number, options: ChoreographOptions):
      * seven of them before the one that ends the round.
      *
      * No flights for the cards that arrive. The engine folds the deal into this
-     * event and drops its `cardDrawn`, so there is nothing here to fly from — and
-     * eight cards crossing the screen would bury the moment they belong to. It makes
-     * no sound of its own either: a step always lands in the same beat as the card
-     * that caused it, and that card is already audible.
-     */
-    case 'stairsAdvanced':
-      return [
-        pulse(id(`stairs:${event.playerId}:${event.stage}`), seatAnchor(event.playerId, me), 'success', {
-          intensity: 2,
-        }),
-      ];
-
     /*
      * Deliberately silent.
      *
      * `colorChosen` repaints the table, and the colour rail
      * around the discard pile already cross-fades — animating them again would be
-     * two answers to one question. `takiOpened` and `takiClosed` are bracketed by
-     * the `cardPlayed` events that caused them. `plusRefilled` always lands in the
-     * same beat as the `cardDrawn` it explains, and that draw already flies a card
-     * to the seat. `gameStarted` deals instantly on purpose: a dealing animation
-     * looks magnificent once and costs two seconds before every round of a game
-     * people play five rounds of. The rest are bookkeeping with nothing to show.
+     * two answers to one question. `roundScored` always lands in the same beat as
+     * the `playerWon` it follows, and that moment is already as loud as it gets.
+     * `turnPassed` is the quietest thing in the game by design: nothing happened,
+     * which is the whole content of it. `gameStarted` deals instantly on purpose: a
+     * dealing animation looks magnificent once and costs two seconds before every
+     * round of a game people play five rounds of. The rest are bookkeeping with
+     * nothing to show.
      */
-    case 'plusRefilled':
+    case 'roundScored':
+    case 'turnPassed':
     case 'gameStarted':
-    case 'takiOpened':
-    case 'takiClosed':
     case 'colorChosen':
     case 'turnChanged':
     case 'drawPileExhausted':

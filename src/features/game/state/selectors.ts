@@ -1,5 +1,5 @@
 import type { Card, CardColor, CardKind } from '../engine/cards.ts';
-import { cardColor, isNumberCard, requiresColorChoice } from '../engine/cards.ts';
+import { CARD_COLORS, cardColor, isNumberCard, requiresColorChoice } from '../engine/cards.ts';
 import { getPlayableCardIds } from '../engine/rules.ts';
 import type { GameMode } from '../engine/state.ts';
 import { computeStandings, playContextFromPublic, type StandingRow } from '../engine/views.ts';
@@ -19,6 +19,11 @@ export interface TableSnapshot {
   readonly publicState: PublicGameState | null;
   readonly localPlayerId: string | null;
   readonly hand: readonly Card[];
+  /**
+   * The card this player has drawn this turn, from their own private hand
+   * message. `null` when they have not drawn, or when it is not their turn.
+   */
+  readonly drawnCardId: string | null;
   readonly lobby: LobbySnapshot | null;
 }
 
@@ -71,13 +76,10 @@ export function tableGameMode(state: Pick<TableSnapshot, 'lobby'>): GameMode {
   return state.lobby?.gameMode ?? 'classic';
 }
 
-/** Hands the local player has emptied in a stairs round, or `null` in a classic one. */
-export function myStairsStep(state: Pick<TableSnapshot, 'publicState' | 'localPlayerId'>): number | null {
-  if (roundGameMode(state) !== 'stairs') {
-    return null;
-  }
-  const me = state.publicState?.players.find((player) => player.id === state.localPlayerId);
-  return me?.stairsStep ?? 0;
+/** The local player's running match total, or `null` when nobody is scoring. */
+export function myPoints(state: Pick<TableSnapshot, 'lobby' | 'localPlayerId'>): number | null {
+  const seat = state.lobby?.players.find((player) => player.id === state.localPlayerId);
+  return seat?.points ?? null;
 }
 
 export function isMyTurn(state: Pick<TableSnapshot, 'publicState' | 'localPlayerId'>): boolean {
@@ -90,44 +92,46 @@ export function isMyTurn(state: Pick<TableSnapshot, 'publicState' | 'localPlayer
   );
 }
 
-/**
- * Whether the local player holds a +3 Breaker while a +3 is waiting to be
- * answered. Worked out from the player's own hand, because who holds a breaker
- * is deliberately never published to the table.
- */
-export function canBreakPlusThree(
-  state: Pick<TableSnapshot, 'publicState' | 'localPlayerId' | 'hand'>,
+/** Whether the local player is the seat that has to answer an open Wild Draw Four. */
+export function mustAnswerChallenge(
+  state: Pick<TableSnapshot, 'publicState' | 'localPlayerId'>,
 ): boolean {
-  const plusThree = state.publicState?.plusThree;
-  if (!plusThree || plusThree.playerId === state.localPlayerId) {
-    return false;
-  }
-  return state.hand.some((card) => card.kind === 'breakPlusThree');
+  const challenge = state.publicState?.challenge;
+  return challenge !== null && challenge !== undefined && challenge.targetId === state.localPlayerId;
 }
 
-/** Ids of the cards the local player may legally play right now. */
+/**
+ * Ids of the cards the local player may legally play right now.
+ *
+ * Three gates, and the second is the one that has to be here rather than left to
+ * the engine: a card already drawn this turn is the *only* card the table will
+ * accept, so lighting the rest of the hand would offer taps that are all refused.
+ */
 export function playableCardIds(
-  state: Pick<TableSnapshot, 'publicState' | 'localPlayerId' | 'hand'>,
+  state: Pick<TableSnapshot, 'publicState' | 'localPlayerId' | 'hand' | 'drawnCardId'>,
 ): readonly string[] {
   if (!state.publicState) {
     return [];
   }
-  // An open +3 suspends the turn order: the only legal card at the table is a
-  // breaker, from whoever holds one.
-  if (state.publicState.plusThree) {
-    return canBreakPlusThree(state)
-      ? state.hand.filter((card) => card.kind === 'breakPlusThree').map((card) => card.id)
-      : [];
+  // An open Wild Draw Four freezes the table. Nothing is playable by anybody: the
+  // seat being waited for answers with a button, not with a card.
+  if (state.publicState.challenge) {
+    return [];
   }
   if (!isMyTurn(state)) {
     return [];
   }
-  return getPlayableCardIds(state.hand, playContextFromPublic(state.publicState));
+  const context = playContextFromPublic(state.publicState);
+  if (state.drawnCardId !== null) {
+    const drawn = state.hand.filter((card) => card.id === state.drawnCardId);
+    return getPlayableCardIds(drawn, context);
+  }
+  return getPlayableCardIds(state.hand, context);
 }
 
-/** Whether `playerId` has declared "last card" for the card they hold now. */
+/** Whether `playerId` has called UNO for the card they hold now. */
 export function hasDeclaredLastCard(state: Pick<TableSnapshot, 'publicState'>, playerId: string): boolean {
-  return state.publicState?.declaredLastCard.includes(playerId) ?? false;
+  return state.publicState?.declaredUno.includes(playerId) ?? false;
 }
 
 /**
@@ -145,7 +149,7 @@ export function mustDeclareLastCard(
   if (!publicState || publicState.phase !== 'playing' || !localPlayerId) {
     return false;
   }
-  return state.hand.length === 1 && !publicState.declaredLastCard.includes(localPlayerId);
+  return state.hand.length === 1 && !publicState.declaredUno.includes(localPlayerId);
 }
 
 export function needsColorChoice(card: Card): boolean {
@@ -158,21 +162,23 @@ export function activeColor(state: Pick<TableSnapshot, 'publicState'>): CardColo
 
 /* Hand order ---------------------------------------------------------------- */
 
-const COLOR_RANK: Record<CardColor, number> = { red: 0, yellow: 1, green: 2, blue: 3 };
+/*
+ * The deck's own order, read from the deck rather than repeated here. These two
+ * lists used to disagree — the deck built one order and the hand sorted by another
+ * — which nothing depended on, which is exactly why it survived.
+ */
+const COLOR_RANK: Record<CardColor, number> = Object.fromEntries(
+  CARD_COLORS.map((color, index) => [color, index]),
+) as Record<CardColor, number>;
 
 /** Within a colour: numbers first in value order, then the action cards. */
 const KIND_RANK: Record<CardKind, number> = {
   number: 0,
-  plus: 1,
-  stop: 2,
-  plusTwo: 3,
-  direction: 4,
-  taki: 5,
-  superTaki: 6,
-  colorChange: 7,
-  king: 8,
-  plusThree: 9,
-  breakPlusThree: 10,
+  skip: 1,
+  reverse: 2,
+  drawTwo: 3,
+  wild: 4,
+  wildDrawFour: 5,
 };
 
 /**
@@ -209,8 +215,15 @@ export interface OpponentView {
   readonly isCurrent: boolean;
   readonly health: LobbyPlayer['health'];
   readonly isCreator: boolean;
-  /** Has declared "last card" for the single card they are holding. */
+  /** Has called UNO for the single card they are holding. */
   readonly declaredLastCard: boolean;
+  /**
+   * Running match total, or `null` when the table is not keeping one.
+   *
+   * `null` rather than nought, so a screen can tell "nobody is scoring" from "this
+   * player has not scored yet" without having to ask about the mode.
+   */
+  readonly points: number | null;
   /** Has left the round; their cards are frozen out of play. */
   readonly left: boolean;
   /** On one card and still silent, so this seat can be called out. */
@@ -219,13 +232,6 @@ export interface OpponentView {
   readonly bot: boolean;
   /** A robot is playing this human's seat while nobody answers for it. */
   readonly standIn: boolean;
-  /**
-   * Hands this seat has emptied in a stairs round, or `null` in a classic one.
-   *
-   * `null` rather than nought, so the seat can tell "no staircase is being played"
-   * from "this player has not finished a hand yet" without asking about the mode.
-   */
-  readonly stairsStep: number | null;
 }
 
 /**
@@ -244,7 +250,6 @@ export function opponents(state: TableSnapshot): readonly OpponentView[] {
   const ordered =
     localIndex >= 0 ? [...players.slice(localIndex + 1), ...players.slice(0, localIndex)] : [...players];
 
-  const stairs = publicState.mode === 'stairs';
   return ordered
     .filter((player) => player.id !== localPlayerId)
     .map((player) => {
@@ -253,18 +258,23 @@ export function opponents(state: TableSnapshot): readonly OpponentView[] {
         id: player.id,
         name: player.name,
         cardCount: player.cardCount,
-        stairsStep: stairs ? (player.stairsStep ?? 0) : null,
+        points: lobby?.players.find((candidate) => candidate.id === player.id)?.points ?? null,
         isCurrent: publicState.currentPlayerId === player.id,
         health: lobbyPlayer?.health ?? 'connected',
         isCreator: lobbyPlayer?.isCreator ?? false,
-        declaredLastCard: publicState.declaredLastCard.includes(player.id),
+        declaredLastCard: publicState.declaredUno.includes(player.id),
         left: player.left === true,
         bot: lobbyPlayer?.bot === true,
         standIn: lobbyPlayer?.standIn === true,
         catchable:
           publicState.phase === 'playing' &&
-          player.cardCount === 1 &&
-          !publicState.declaredLastCard.includes(player.id) &&
+          /*
+           * The window is the room's to publish, and it is read rather than
+           * re-derived. Working it out from "one card and no call" would light the
+           * button for the rest of the round — the official window shuts the moment
+           * the next player begins — and every tap after it would be refused.
+           */
+          publicState.catchableUno.includes(player.id) &&
           player.left !== true &&
           /*
            * Somebody who is not there cannot shout, so calling them out for
@@ -414,10 +424,7 @@ export function winnerName(state: Pick<TableSnapshot, 'publicState' | 'lobby'>):
   return winnerId ? playerName(state, winnerId) : null;
 }
 
-export function isTakiOpenForMe(state: Pick<TableSnapshot, 'publicState' | 'localPlayerId'>): boolean {
-  const taki = state.publicState?.takiMode;
-  return taki !== null && taki !== undefined && taki.playerId === state.localPlayerId;
-}
+
 
 export function connectedCount(state: Pick<TableSnapshot, 'lobby'>): number {
   return seatedPlayers(state).filter((player) => player.health !== 'disconnected').length;

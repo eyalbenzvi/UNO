@@ -596,7 +596,11 @@ export class ClientSession implements Session {
           return;
         }
         this.lastHandVersion = hand.version;
-        this.observer({ type: 'hand', cards: hand.cards });
+        this.observer({
+          type: 'hand',
+          cards: hand.cards,
+          ...(hand.drawnCardId === undefined ? {} : { drawnCardId: hand.drawnCardId }),
+        });
         return;
       }
       case 'gameEvents': {

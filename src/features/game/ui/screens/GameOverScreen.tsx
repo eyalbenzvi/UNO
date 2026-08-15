@@ -3,7 +3,6 @@ import { Badge } from '../../../../components/Badge.tsx';
 import { Button } from '../../../../components/Button.tsx';
 import { Icon } from '../../../../components/Icon.tsx';
 import { useT } from '../../../../app/useT.ts';
-import { STAIRS_STAGES } from '../../engine/cards.ts';
 import {
   robotSeat,
   roundGameMode,
@@ -27,7 +26,7 @@ export function GameOverScreen(): ReactNode {
   const state = useAppStore();
   const rows = standings(state);
   const scores = scoreboard(state);
-  const stairs = roundGameMode(state) === 'stairs';
+  const scoring = roundGameMode(state) === 'points';
   const winner = state.publicState?.winnerId ?? null;
   const abandoned = wasAbandoned(state);
   const iWon = winner !== null && winner === state.localPlayerId;
@@ -73,10 +72,9 @@ export function GameOverScreen(): ReactNode {
             <tr>
               <th scope="col">{t('over.rank')}</th>
               <th scope="col">{t('over.player')}</th>
-              {/* Only where it means something. In a stairs round it is the result
-                  and the cards left are the detail; in a classic one there is no
-                  staircase to report. */}
-              {stairs ? <th scope="col">{t('over.stairsStep')}</th> : null}
+              {/* Only where it means something: a classic round keeps no score, so
+                  a column of blanks would be worse than no column. */}
+              {scoring ? <th scope="col">{t('over.roundPoints')}</th> : null}
               <th scope="col">{t('over.cardsLeft')}</th>
             </tr>
           </thead>
@@ -104,14 +102,7 @@ export function GameOverScreen(): ReactNode {
                     {robotSeat(state, row.playerId) ? <Badge icon="robot">{t('robot.badge')}</Badge> : null}
                   </span>
                 </td>
-                {stairs ? (
-                  <td className="standings__count">
-                    {t('over.stairsStepValue', {
-                      done: row.stairsStep ?? 0,
-                      total: STAIRS_STAGES,
-                    })}
-                  </td>
-                ) : null}
+                {scoring ? <td className="standings__count">{row.roundPoints ?? 0}</td> : null}
                 {/* The column header carries the unit; repeating it in every
                     cell just makes the table harder to scan. */}
                 <td className="standings__count">{row.cardCount}</td>

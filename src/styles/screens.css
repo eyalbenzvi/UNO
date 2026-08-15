@@ -511,14 +511,14 @@
 }
 
 /*
- * How far down the staircase somebody is, in a "stairs" round.
+ * A seat's running match total, in a points match.
  *
  * Numerals, not a bar: the number is compared across seats — "I am on four, he is
  * on six" — and a length is the one shape that cannot be compared at this size. The
  * digits are tabular so the chip does not change width as the round goes on, which
  * on a row of six seats would shuffle the whole table sideways.
  */
-.stairs-chip {
+.score-chip {
   display: inline-flex;
   align-items: center;
   gap: 2px;

@@ -4,16 +4,15 @@ import { Button } from '../../../../components/Button.tsx';
 import { Callout } from '../../../../components/Callout.tsx';
 import { Icon } from '../../../../components/Icon.tsx';
 import { useDirection, useT } from '../../../../app/useT.ts';
-import { countLabel, type Translator } from '../../../../i18n/index.ts';
-import { LAST_CARD_PENALTY, requiresColorChoice, type Card, type CardColor } from '../../engine/cards.ts';
+import type { Translator } from '../../../../i18n/index.ts';
+import { UNO_PENALTY, requiresColorChoice, type Card, type CardColor } from '../../engine/cards.ts';
 import {
-  canBreakPlusThree,
   currentPlayerName,
   hasDeclaredLastCard,
   isMyTurn,
-  isTakiOpenForMe,
+  mustAnswerChallenge,
   mustDeclareLastCard,
-  myStairsStep,
+  myPoints,
   opponents,
   playableCardIds,
   playerName,
@@ -21,7 +20,7 @@ import {
   type TableSnapshot,
 } from '../../state/selectors.ts';
 import { useAppStore, type FeedEntry } from '../../state/store.ts';
-import { colorName } from '../cardText.ts';
+import { colorName, describeCard } from '../cardText.ts';
 import { describeEvent } from '../eventText.ts';
 import { useCatchGrace } from '../useCatchGrace.ts';
 import { playCue } from '../../../../lib/audio.ts';
@@ -73,6 +72,7 @@ export function GameScreen(): ReactNode {
       publicState: state.publicState,
       localPlayerId: state.localPlayerId,
       hand: state.hand,
+      drawnCardId: state.drawnCardId,
       lobby: state.lobby,
       feed: state.feed,
       actionPending: state.actionPending,
@@ -93,8 +93,9 @@ export function GameScreen(): ReactNode {
   const catchDelayMs = useAppStore((state) => state.assist.catchDelayMs);
   const playCard = useAppStore((state) => state.playCard);
   const drawCard = useAppStore((state) => state.drawCard);
-  const closeTaki = useAppStore((state) => state.closeTaki);
-  const passBreak = useAppStore((state) => state.passBreak);
+  const passTurn = useAppStore((state) => state.passTurn);
+  const acceptWildDrawFour = useAppStore((state) => state.acceptWildDrawFour);
+  const challengeWildDrawFour = useAppStore((state) => state.challengeWildDrawFour);
   const declareLastCard = useAppStore((state) => state.declareLastCard);
   const catchLastCard = useAppStore((state) => state.catchLastCard);
   const announce = useAppStore((state) => state.announce);
@@ -119,7 +120,6 @@ export function GameScreen(): ReactNode {
   const { publicState, feed, actionPending } = table;
   const myTurn = isMyTurn(table);
   const playable = playableCardIds(table);
-  const takiOpen = isTakiOpenForMe(table);
   const mustDeclare = mustDeclareLastCard(table);
   const declared =
     table.hand.length === 1 &&
@@ -140,7 +140,7 @@ export function GameScreen(): ReactNode {
     beat?.events.some(
       (event) =>
         (event.type === 'cardDrawn' && event.playerId === table.localPlayerId) ||
-        (event.type === 'lastCardCaught' && event.playerId === table.localPlayerId),
+        (event.type === 'unoCaught' && event.playerId === table.localPlayerId),
     ) ?? false;
   const seats = useCatchGrace(
     useMemo(() => opponents(table), [table]),
@@ -258,18 +258,19 @@ export function GameScreen(): ReactNode {
     }
   };
 
-  const onBreakPlusThree = (): void => {
-    const breaker = table.hand.find((card) => card.kind === 'breakPlusThree');
-    if (breaker) {
-      playCard(breaker.id);
-    }
-  };
-
-  const plusThree = publicState.plusThree;
-  const plusThreeName = plusThree ? playerName(table, plusThree.playerId) : null;
-  // A +3 freezes the table for everyone until the breaker window closes.
-  const myBreak = plusThree !== null && canBreakPlusThree(table);
-  const canDraw = myTurn && !publicState.takiMode && plusThree === null && !actionPending;
+  const challenge = publicState.challenge;
+  const challengerName = challenge ? playerName(table, challenge.playerId) : null;
+  // A Wild Draw Four freezes the table for everyone until its victim answers.
+  const mineToAnswer = mustAnswerChallenge(table);
+  /*
+   * One card a turn, and only before anything has been played. `hasDrawn` is what
+   * closes the pile for the rest of the turn — without it the pile stays lit after
+   * a draw and every tap is refused.
+   */
+  const canDraw = myTurn && challenge === null && !publicState.hasDrawn && !actionPending;
+  const drawnCard = table.drawnCardId
+    ? (table.hand.find((card) => card.id === table.drawnCardId) ?? null)
+    : null;
 
   return (
     <div className="game">
@@ -341,19 +342,16 @@ export function GameScreen(): ReactNode {
               myTurn={myTurn}
               turnName={turnName}
               actionPending={actionPending}
-              takiOpen={takiOpen}
-              takiColor={publicState.takiMode?.color ?? null}
-              plusThreeOpen={plusThree !== null}
-              plusThreeName={plusThreeName}
-              myBreak={myBreak}
-              pendingDraw={publicState.pendingDraw}
-              pendingPlus={publicState.pendingPlus}
-              freePlay={publicState.freePlay}
+              challengeOpen={challenge !== null}
+              challengerName={challengerName}
+              mineToAnswer={mineToAnswer}
+              challengeColor={publicState.activeColor}
+              drawnCard={drawnCard}
+              hasDrawn={publicState.hasDrawn}
               playableCount={playable.length}
-              onCloseTaki={closeTaki}
-              onTakeCards={drawCard}
-              onBreak={onBreakPlusThree}
-              onPassBreak={passBreak}
+              onPassTurn={passTurn}
+              onAccept={acceptWildDrawFour}
+              onChallenge={challengeWildDrawFour}
             />
           }
         </div>
@@ -371,7 +369,7 @@ export function GameScreen(): ReactNode {
           onDraw={drawCard}
           onDrawBlocked={onRefuse}
           drawBlockedReason={
-            publicState.takiMode ? t('reject.cannotDrawDuringTaki') : t('game.drawPileBlocked')
+            publicState.hasDrawn ? t('reject.alreadyDrew') : t('game.drawPileBlocked')
           }
         />
       </div>
@@ -395,7 +393,7 @@ export function GameScreen(): ReactNode {
             >
               <span className="declare-btn__shout">{t('game.declareLastCard')}</span>
               <span className="declare-btn__why">
-                {t('game.declareLastCardBody', { count: LAST_CARD_PENALTY })}
+                {t('game.declareLastCardBody', { count: UNO_PENALTY })}
               </span>
             </Button>
           ) : (
@@ -421,7 +419,7 @@ export function GameScreen(): ReactNode {
           onRefuse={onRefuse}
           locked={actionPending}
           disabledReason={myTurn ? t('game.notPlayable') : t('game.notYourTurn')}
-          stairsStep={myStairsStep(table)}
+          points={myPoints(table)}
         />
       </div>
 
@@ -446,72 +444,69 @@ interface ActionPromptProps {
   readonly myTurn: boolean;
   readonly turnName: string | null;
   readonly actionPending: boolean;
-  readonly takiOpen: boolean;
-  readonly takiColor: CardColor | null;
-  readonly plusThreeOpen: boolean;
-  readonly plusThreeName: string | null;
-  readonly myBreak: boolean;
-  readonly pendingDraw: number;
-  readonly pendingPlus: boolean;
-  readonly freePlay: boolean;
+  readonly challengeOpen: boolean;
+  readonly challengerName: string | null;
+  readonly mineToAnswer: boolean;
+  readonly challengeColor: CardColor;
+  readonly drawnCard: Card | null;
+  readonly hasDrawn: boolean;
   readonly playableCount: number;
-  readonly onCloseTaki: () => void;
-  readonly onTakeCards: () => void;
-  readonly onBreak: () => void;
-  readonly onPassBreak: () => void;
+  readonly onPassTurn: () => void;
+  readonly onAccept: () => void;
+  readonly onChallenge: () => void;
 }
 
 /**
  * The one line that answers "what do I do now", with the buttons for doing it.
  *
  * Exactly one of these is on screen at a time, in strict priority order. The
- * screen used to stack up to four notices at once — a pending draw, a pending
- * Plus, a free play, "no legal card" — each in the same flat blue box, leaving the
- * player to work out which one was actually addressed to them.
+ * screen it replaces stacked up to four notices at once, each in the same flat
+ * blue box, leaving the player to work out which one was addressed to them.
  */
 function ActionPrompt({
   t,
   myTurn,
   turnName,
   actionPending,
-  takiOpen,
-  takiColor,
-  plusThreeOpen,
-  plusThreeName,
-  myBreak,
-  pendingDraw,
-  pendingPlus,
-  freePlay,
+  challengeOpen,
+  challengerName,
+  mineToAnswer,
+  challengeColor,
+  drawnCard,
+  hasDrawn,
   playableCount,
-  onCloseTaki,
-  onTakeCards,
-  onBreak,
-  onPassBreak,
+  onPassTurn,
+  onAccept,
+  onChallenge,
 }: ActionPromptProps): ReactNode {
-  // A +3 suspends the turn order for everybody, so it outranks whose turn it is.
-  if (plusThreeOpen) {
-    return myBreak ? (
+  // A Wild Draw Four suspends the turn order for everybody, so it outranks whose
+  // turn it is.
+  if (challengeOpen) {
+    return mineToAnswer ? (
       <Callout
         tone="action"
         urgent
         role="status"
-        title={t('game.plusThreeTitle')}
+        title={t('game.challengeTitle')}
         actions={
           <>
-            <Button variant="primary" onClick={onBreak}>
-              {t('game.plusThreeBreak')}
+            <Button variant="primary" onClick={onAccept}>
+              {t('game.challengeAccept')}
             </Button>
-            <Button variant="ghost" onClick={onPassBreak}>
-              {t('game.plusThreePass')}
+            <Button variant="ghost" onClick={onChallenge}>
+              {t('game.challengeCall')}
             </Button>
           </>
         }
       >
-        {t('game.plusThreeBreakBody', { name: plusThreeName ?? '—' })}
+        {t('game.challengeBody', {
+          name: challengerName ?? '—',
+          color: colorName(t, challengeColor),
+        })}
       </Callout>
     ) : (
-      <Callout tone="neutral" icon="hourglass" role="status" title={t('game.plusThreeTitle')}>
-        {t('game.plusThreeWaiting', { name: plusThreeName ?? '—' })}
+      <Callout tone="neutral" icon="hourglass" role="status" title={t('game.challengeTitle')}>
+        {t('game.challengeWaiting', { name: challengerName ?? '—' })}
       </Callout>
     );
   }
@@ -532,67 +527,27 @@ function ActionPrompt({
     );
   }
 
-  if (takiOpen && takiColor) {
+  /*
+   * A card has been drawn, so the turn is half over and the choice has narrowed to
+   * two: play that card, or end the turn. Both branches offer the same button,
+   * because ending the turn is legal either way — what changes is whether the card
+   * is also an option, and saying which it is out loud saves the player hunting
+   * through a hand that is no longer playable.
+   */
+  if (hasDrawn) {
+    const card = drawnCard === null ? '—' : describeCard(t, drawnCard);
     return (
       <Callout
-        tone="action"
-        urgent
+        tone={playableCount > 0 ? 'action' : 'neutral'}
+        urgent={playableCount > 0}
         role="status"
-        title={t('game.takiOpenTitle', { color: colorName(t, takiColor) })}
         actions={
-          <Button variant="primary" onClick={onCloseTaki}>
-            {t('game.closeTaki')}
+          <Button variant={playableCount > 0 ? 'ghost' : 'primary'} onClick={onPassTurn}>
+            {t('game.passTurn')}
           </Button>
         }
       >
-        {t('game.takiOpenBody', { color: colorName(t, takiColor) })}
-      </Callout>
-    );
-  }
-
-  if (pendingDraw > 0) {
-    return (
-      <Callout
-        tone="action"
-        urgent
-        role="status"
-        actions={
-          <Button variant="primary" onClick={onTakeCards}>
-            {countLabel(t, 'game.takeCards', pendingDraw)}
-          </Button>
-        }
-      >
-        {countLabel(t, 'game.pendingDraw', pendingDraw)}
-      </Callout>
-    );
-  }
-
-  if (freePlay) {
-    return (
-      <Callout tone="success" icon="crown" role="status">
-        {t('game.freePlay')}
-      </Callout>
-    );
-  }
-
-  if (pendingPlus) {
-    /*
-     * The card owed after a Plus may be paid from the pile, so the way out is a
-     * button here as well as a lit draw pile. Without it the prompt reads as an
-     * instruction with no alternative, which is what the rule used to be.
-     */
-    return (
-      <Callout
-        tone="action"
-        urgent
-        role="status"
-        actions={
-          <Button variant="ghost" onClick={onTakeCards}>
-            {t('game.plusTakeInstead')}
-          </Button>
-        }
-      >
-        {t('game.pendingPlus')}
+        {playableCount > 0 ? t('game.drewCard', { card }) : t('game.drewUnplayable', { card })}
       </Callout>
     );
   }

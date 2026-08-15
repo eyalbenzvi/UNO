@@ -3,7 +3,7 @@ import type { Card } from '../../engine/cards.ts';
 import { isNumberCard } from '../../engine/cards.ts';
 import { BlockArt } from '../../../../lib/BlockArt.tsx';
 import { arc, turn, type Box, type Part, type Pt, type Shape } from '../../../../lib/blockGeometry.ts';
-import { digit, letter, setAt, widthAt } from '../../../../lib/blockAlphabet.ts';
+import { digit } from '../../../../lib/blockAlphabet.ts';
 
 /**
  * The card symbols.
@@ -15,8 +15,8 @@ import { digit, letter, setAt, widthAt } from '../../../../lib/blockAlphabet.ts'
  * given as separate parts so each is a solid in its own right and the pieces
  * overlap the way real blocks would.
  *
- * The one exception is Change Colour, whose cubes are seen straight on in
- * isometric rather than leaning, exactly as they are printed; those are drawn
+ * The one exception is the Wild, whose cubes are seen straight on in isometric
+ * rather than leaning, exactly as the four-colour mark is printed; those are drawn
  * face by face here.
  */
 
@@ -45,34 +45,30 @@ const CROSS: readonly Shape[] = [
 ];
 
 /**
- * An open palm: four fingers with domed tips over a broad hand, thumb out to
- * the left. The tips are arcs — a hand is the one symbol in the deck that is
- * not built out of straight cuts, and faceting it makes it read as a leaf.
+ * The prohibition ring: a heavy annulus with a bar laid across it.
+ *
+ * A ring rather than a disc with a slot cut in it, because the counter has to
+ * survive the extrusion — the inner wall eats into it from the top left, and a
+ * thinner ring closes up into a solid blob at the size a corner index is drawn.
  */
-const PALM: readonly Shape[] = [
+const RING: readonly Shape[] = [
+  { outer: arc(50, 50, 48, 48, 0, 360, 20), holes: [arc(50, 50, 30, 30, 0, 360, 20)] },
+];
+
+/**
+ * The bar, on the upper-left-to-lower-right diagonal every prohibition sign uses.
+ *
+ * Its own part rather than a hole in the ring, so it extrudes as a solid in front
+ * of the ring and reads as two objects — which is what the printed card shows, and
+ * what stops the mark reading as a letter O with a scratch on it.
+ */
+const BAR: readonly Shape[] = [
   {
     outer: [
-      [30, 62],
-      ...arc(38, 28, 7.5, 7.5, 180, 360, 6),
-      [46, 56],
-      ...arc(54, 19, 7.5, 7.5, 180, 360, 6),
-      [62, 55],
-      ...arc(70, 25, 7, 7, 180, 360, 6),
-      [78, 58],
-      ...arc(85, 37, 6.5, 6.5, 180, 360, 6),
-      [95, 66],
-      [90, 86],
-      [74, 98],
-      [52, 100],
-      [34, 94],
-      [26, 86],
-      // The thumb: a lobe of its own, set off from the palm by a real notch so
-      // the hand does not read as a mitten.
-      [14, 90],
-      [3, 84],
-      [0, 72],
-      [8, 63],
-      [22, 62],
+      [16.3, 27.7],
+      [27.7, 16.3],
+      [83.7, 72.3],
+      [72.3, 83.7],
     ],
   },
 ];
@@ -95,48 +91,6 @@ const ARROW: readonly Shape[] = [
 /** Two arrows head to tail, the Change Direction mark. */
 const ARROWS: readonly Shape[] = [...ARROW, ...turn(ARROW, 50, 54)];
 
-/**
- * Three points over two valleys, flaring outwards as they rise, sitting on a
- * rim — the shape everyone draws when they draw a crown.
- */
-const CROWN: readonly Shape[] = [
-  {
-    outer: [
-      [3, 11],
-      [27, 43],
-      [50, 3],
-      [73, 43],
-      [97, 11],
-      [88, 69],
-      [12, 69],
-    ],
-  },
-];
-
-/** The rim under the points, a little wider than the body it carries. */
-const CROWN_RIM: readonly Shape[] = [
-  {
-    outer: [
-      [5, 66],
-      [95, 66],
-      [95, 93],
-      [5, 93],
-    ],
-  },
-];
-
-/** The stone set in the rim, raised proud of it. */
-const JEWEL: readonly Shape[] = [
-  {
-    outer: [
-      [50, 68],
-      [59, 79],
-      [50, 90],
-      [41, 79],
-    ],
-  },
-];
-
 /* Compositions --------------------------------------------------------------- */
 
 function scaleShapes(shapes: readonly Shape[], factor: number, dx: number, dy: number): Shape[] {
@@ -158,43 +112,7 @@ function counted(value: number, numeralSlot?: number): Part[] {
   ];
 }
 
-/**
- * TAKI in a block of four, as the card prints it. Each letter is its own solid,
- * so the two on the right correctly overlap the two on the left; `multicolor`
- * gives each one a suit, which is what the Super Taki card does.
- */
-function takiBlock(multicolor: boolean): Part[] {
-  const cap = 44;
-  // Wide enough that a letter's wall lands beside its neighbour rather than on
-  // top of it: the four have to stay four letters, not one coloured mass.
-  const gap = 9;
-  const rows: ReadonlyArray<readonly [string, number][]> = [
-    [
-      ['T', 2],
-      ['A', 0],
-    ],
-    [
-      ['K', 1],
-      ['I', 3],
-    ],
-  ];
-  return rows.flatMap((row, rowIndex) => {
-    const widths = row.map(([character]) => widthAt(letter(character), cap));
-    const total = widths.reduce((sum, w) => sum + w, 0) + gap * (row.length - 1);
-    let cursor = -total / 2;
-    return row.map(([character, slot], index) => {
-      const w = widths[index]!;
-      const part: Part = {
-        shapes: setAt(letter(character), cursor + w / 2, rowIndex * (cap + gap), cap),
-        ...(multicolor ? { slot } : {}),
-      };
-      cursor += w + gap;
-      return part;
-    });
-  });
-}
-
-/* Change Colour -------------------------------------------------------------- */
+/* The Wild -------------------------------------------------------------- */
 
 /**
  * Half-width, half-height and wall height of one cube, and the step between
@@ -281,34 +199,17 @@ const SHALLOW: Pt = [-6, 7.2];
 function drawingFor(card: Card): Drawing {
   if (isNumberCard(card)) return { parts: [{ shapes: digit(card.value) }] };
   switch (card.kind) {
-    case 'stop':
-      return { parts: [{ shapes: PALM }] };
-    case 'plus':
-      return { parts: [{ shapes: CROSS }] };
-    case 'plusTwo':
-      return { parts: counted(2), depth: SHALLOW };
-    case 'direction':
+    case 'skip':
+      return { parts: [{ shapes: RING }, { shapes: BAR }], depth: SHALLOW };
+    case 'reverse':
       return { parts: [{ shapes: [ARROWS[0]!] }, { shapes: [ARROWS[1]!] }], depth: SHALLOW };
-    case 'taki':
-      return { parts: takiBlock(false), depth: SHALLOW };
-    case 'superTaki':
-      return { parts: takiBlock(true), depth: SHALLOW };
-    case 'king':
-      return {
-        parts: [{ shapes: CROWN }, { shapes: CROWN_RIM, z: -1e6 }, { shapes: JEWEL, slot: 4, z: -2e6 }],
-      };
-    case 'plusThree':
-      return { parts: counted(3), depth: SHALLOW };
-    case 'breakPlusThree':
-      return {
-        parts: [
-          { shapes: tilt(THREE_TOP, -9, -6, -6) },
-          { shapes: tilt(THREE_BOTTOM, 8, 7, 7) },
-          { shapes: SHARDS },
-        ],
-        depth: SHALLOW,
-      };
+    case 'drawTwo':
+      return { parts: counted(2), depth: SHALLOW };
+    case 'wildDrawFour':
+      return { parts: counted(4), depth: SHALLOW };
     default:
+      // The Wild is drawn as cubes rather than an extruded outline, and is taken
+      // before this function is reached.
       return { parts: [{ shapes: CROSS }] };
   }
 }
@@ -320,96 +221,16 @@ function drawingFor(card: Card): Drawing {
  * printed deck shrinks its own indices down to a mark.
  */
 function indexFor(card: Card): Drawing | null {
-  if (isNumberCard(card)) return null;
-  switch (card.kind) {
-    case 'taki':
-      return { parts: [{ shapes: letter('T') }] };
-    case 'superTaki':
-      return { parts: takiBlock(true) };
-    default:
-      return null;
-  }
-}
-
-/*
- * The +3 Breaker: the numeral snapped in two.
- *
- * Both halves are traced off the alphabet's 3 — same outline, same terminals —
- * and parted along one ragged fracture, each half keeping the identical run of
- * points so no material is gained or lost across the join. The break runs
- * through the waist, where the numeral is already at its thinnest and where a
- * real one would give way. Pulling the halves apart and canting them opposite
- * ways is what actually says "broken"; a line drawn over an intact numeral
- * only ever reads as a line drawn over an intact numeral.
- */
-const FRACTURE: readonly Pt[] = [
-  [49, 44],
-  [40, 38],
-  [31, 45],
-  [22, 39],
-  [14, 45],
-];
-
-const THREE_TOP: readonly Shape[] = [
-  {
-    outer: [
-      [12, 0],
-      [44, 0],
-      [56, 12],
-      [56, 27],
-      [46, 38],
-      ...FRACTURE,
-      [14, 29],
-      [36, 29],
-      [36, 19],
-      [0, 19],
-      [0, 12],
-    ],
-  },
-];
-
-const THREE_BOTTOM: readonly Shape[] = [
-  {
-    outer: [
-      ...[...FRACTURE].reverse(),
-      [56, 49],
-      [56, 64],
-      [44, 76],
-      [12, 76],
-      [0, 64],
-      [0, 57],
-      [36, 57],
-      [36, 47],
-      [14, 47],
-    ],
-  },
-];
-
-/** A chip thrown clear of the break, small enough to read as debris. */
-const SHARDS: readonly Shape[] = [
-  {
-    outer: [
-      [62, 29],
-      [71, 34],
-      [64, 40],
-    ],
-  },
-];
-
-/** Rotates about a point and then shifts, so a piece can be knocked askew. */
-function tilt(shapes: readonly Shape[], degrees: number, dx: number, dy: number): Shape[] {
-  const radians = (degrees * Math.PI) / 180;
-  const cos = Math.cos(radians);
-  const sin = Math.sin(radians);
-  const [cx, cy] = [28, 38];
-  const move = ([x, y]: Pt): Pt => [
-    cx + (x - cx) * cos - (y - cy) * sin + dx,
-    cy + (x - cx) * sin + (y - cy) * cos + dy,
-  ];
-  return shapes.map((shape) => ({
-    outer: shape.outer.map(move),
-    ...(shape.holes ? { holes: shape.holes.map((hole) => hole.map(move)) } : {}),
-  }));
+  /*
+   * Nothing needs a stand-in any more. The busiest symbol in this deck is a
+   * numeral beside a small cross, which survives being drawn a few millimetres
+   * across; the deck this game was built from had a four-letter wordmark on two
+   * cards, which did not. Kept as a seam because the corner index is the one place
+   * where a symbol has to be *recognised* rather than read, and the next card added
+   * to the deck may well need one.
+   */
+  void card;
+  return null;
 }
 
 export interface CardGlyphProps {
@@ -443,7 +264,7 @@ function valueOf(card: Card): number | null {
 }
 
 function CardGlyphInner({ card, flat = false }: CardGlyphProps): ReactNode {
-  if (card.kind === 'colorChange') {
+  if (card.kind === 'wild') {
     return (
       <svg className="glyph" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
         {flat ? <CubeIndex /> : <CubeStack />}

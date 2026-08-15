@@ -19,7 +19,6 @@ export function RejectionToast(): ReactNode {
   const t = useT();
   const rejection = useAppStore((state) => state.rejection);
   const dismissRejection = useAppStore((state) => state.dismissRejection);
-  const takiColor = useAppStore((state) => state.publicState?.takiMode?.color ?? null);
 
   useEffect(() => {
     if (!rejection) {
@@ -40,9 +39,12 @@ export function RejectionToast(): ReactNode {
       <span className="toast__icon" aria-hidden="true">
         <Icon name="alert" size={1.3} />
       </span>
-      <span className="toast__text">
-        {t(`reject.${rejection.code}`, takiColor ? { color: t(`card.${takiColor}`) } : undefined)}
-      </span>
+      {/*
+        No interpolation: every rejection this game can produce says what it means
+        without naming a colour. The one that did belonged to a sequence rule that
+        UNO has no equivalent of.
+      */}
+      <span className="toast__text">{t(`reject.${rejection.code}`)}</span>
       <Button
         iconOnly
         icon="close"

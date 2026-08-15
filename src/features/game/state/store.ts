@@ -84,6 +84,14 @@ export interface AppState {
   lobby: LobbySnapshot | null;
   publicState: PublicGameState | null;
   hand: readonly Card[];
+  /**
+   * The card this player has already drawn this turn, or `null`.
+   *
+   * From the private hand message rather than the public table, because the ids in
+   * this deck name the card. It is what tells this screen which single card of the
+   * hand is still playable — see `playableCardIds`.
+   */
+  drawnCardId: string | null;
   feed: readonly FeedEntry[];
   /**
    * The newest accepted command, for the presentation layer only.
@@ -202,10 +210,12 @@ export interface AppActions {
    * here sends it: the declaration opens after the card has landed, alongside the
    * catch it exposes its owner to, and never before.
    */
-  readonly playCard: (cardId: string, chosenColor?: 'red' | 'blue' | 'green' | 'yellow') => void;
+  readonly playCard: (cardId: string, chosenColor?: 'red' | 'yellow' | 'green' | 'blue') => void;
   readonly drawCard: () => void;
-  readonly closeTaki: () => void;
-  readonly passBreak: () => void;
+  /** Ends a turn after drawing. Refused unless a card has been taken. */
+  readonly passTurn: () => void;
+  readonly acceptWildDrawFour: () => void;
+  readonly challengeWildDrawFour: () => void;
   readonly declareLastCard: () => void;
   readonly catchLastCard: (targetId: string) => void;
   readonly votePlayAgain: (agree: boolean) => void;
@@ -310,6 +320,7 @@ function initialState(): AppState {
     lobby: null,
     publicState: null,
     hand: [],
+    drawnCardId: null,
     feed: [],
     beat: null,
     playAgain: null,
@@ -338,6 +349,7 @@ const CLEARED_SESSION: Partial<AppState> = {
   lobby: null,
   publicState: null,
   hand: [],
+  drawnCardId: null,
   feed: [],
   beat: null,
   playAgain: null,
@@ -459,7 +471,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         set({ publicState: update.state });
         return;
       case 'hand':
-        set({ hand: update.cards });
+        set({ hand: update.cards, drawnCardId: update.drawnCardId ?? null });
         return;
       case 'events': {
         const entries = update.events.map((event) => {
@@ -471,7 +483,7 @@ export const useAppStore = create<AppStore>((set, get) => {
          * in a batch can be shown, and showing the last is right: two catches in
          * one batch means the older is already answered by the newer.
          */
-        const lastCatch = [...update.events].reverse().find((event) => event.type === 'lastCardCaught');
+        const lastCatch = [...update.events].reverse().find((event) => event.type === 'unoCaught');
         if (lastCatch !== undefined) {
           caughtCounter += 1;
         }
@@ -895,20 +907,24 @@ export const useAppStore = create<AppStore>((set, get) => {
       submit({ type: 'drawCard' });
     },
 
-    closeTaki: () => {
-      submit({ type: 'closeTaki' });
+    passTurn: () => {
+      submit({ type: 'passTurn' });
     },
 
-    passBreak: () => {
-      submit({ type: 'passBreak' });
+    acceptWildDrawFour: () => {
+      submit({ type: 'acceptWildDrawFour' });
+    },
+
+    challengeWildDrawFour: () => {
+      submit({ type: 'challengeWildDrawFour' });
     },
 
     declareLastCard: () => {
-      submit({ type: 'declareLastCard' });
+      submit({ type: 'declareUno' });
     },
 
     catchLastCard: (targetId) => {
-      submit({ type: 'catchLastCard', targetId });
+      submit({ type: 'catchUno', targetId });
     },
 
     votePlayAgain: (agree) => {

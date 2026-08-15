@@ -96,11 +96,11 @@ export function CreateRoomScreen(): ReactNode {
             onChange={setGameMode}
             options={[
               { value: 'classic', label: t('mode.classic') },
-              { value: 'stairs', label: t('mode.stairs') },
+              { value: 'points', label: t('mode.points') },
             ]}
           />
           <span className="field__hint">
-            {gameMode === 'stairs' ? t('mode.stairsHint') : t('mode.classicHint')}
+            {gameMode === 'points' ? t('mode.pointsHint') : t('mode.classicHint')}
           </span>
         </div>
 

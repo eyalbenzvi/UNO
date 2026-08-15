@@ -270,9 +270,9 @@ export function LobbyScreen(): ReactNode {
          * panel above is the creator's, and a mode that changes what winning means
          * is not something the others should meet for the first time mid-round.
          */}
-        {mode === 'stairs' ? (
+        {mode === 'points' ? (
           <p className="text-small muted">
-            <Badge icon="stairs">{t('mode.stairs')}</Badge> {t('mode.stairsHint')}
+            <Badge icon="trophy">{t('mode.points')}</Badge> {t('mode.pointsHint')}
           </p>
         ) : null}
 
@@ -394,11 +394,11 @@ export function LobbyScreen(): ReactNode {
               onChange={state.setGameMode}
               options={[
                 { value: 'classic', label: t('mode.classic') },
-                { value: 'stairs', label: t('mode.stairs') },
+                { value: 'points', label: t('mode.points') },
               ]}
             />
             <span className="field__hint">
-              {mode === 'stairs' ? t('mode.stairsHint') : t('mode.classicHint')}
+              {mode === 'points' ? t('mode.pointsHint') : t('mode.classicHint')}
             </span>
 
             {/*

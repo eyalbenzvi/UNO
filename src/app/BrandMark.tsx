@@ -25,7 +25,14 @@ import { useT } from './useT.ts';
  */
 const CAP = 76;
 const TRACK = -5;
-const SUITS = [2, 0, 1, 3] as const;
+/**
+ * A suit per letter, in an order chosen so no two neighbours share a hue.
+ *
+ * Three letters rather than four, and the mark lost its shoulder word with them:
+ * the game this was built from had a small "SUPER" set over the left of a
+ * four-letter block, and three heavy letters need no help filling the space.
+ */
+const SUITS = [0, 2, 3] as const;
 
 export function BrandMark({ size = 'md' }: { readonly size?: 'sm' | 'md' }): ReactNode {
   const t = useT();
@@ -44,11 +51,8 @@ export function BrandMark({ size = 'md' }: { readonly size?: 'sm' | 'md' }): Rea
   });
 
   return (
-    <svg className={`brand brand--${size}`} viewBox="0 0 208 132" role="img" aria-label={t('app.title')}>
-      <text className="brand__super" x="10" y="28" fontSize="28" fontWeight="800" fontFamily="inherit">
-        {t('app.titleSuper')}
-      </text>
-      <BlockArt parts={parts} box={{ x: 4, y: 30, w: 200, h: 98 }} depth={[-14, 17.5]} prefix="brand" />
+    <svg className={`brand brand--${size}`} viewBox="0 0 208 104" role="img" aria-label={t('app.title')}>
+      <BlockArt parts={parts} box={{ x: 4, y: 4, w: 200, h: 96 }} depth={[-14, 17.5]} prefix="brand" />
     </svg>
   );
 }

@@ -66,7 +66,12 @@ export type SessionUpdate =
   | { readonly type: 'phase'; readonly phase: ConnectionPhase }
   | { readonly type: 'lobby'; readonly lobby: LobbySnapshot }
   | { readonly type: 'publicState'; readonly state: PublicGameState }
-  | { readonly type: 'hand'; readonly cards: readonly Card[] }
+  | {
+      readonly type: 'hand';
+      readonly cards: readonly Card[];
+      /** The card drawn this turn, when this seat is on turn and has drawn. */
+      readonly drawnCardId?: string;
+    }
   | { readonly type: 'events'; readonly events: readonly GameEvent[] }
   | { readonly type: 'actionRejected'; readonly code: RejectionCode; readonly requestId?: string }
   /** One specific intent was applied. The only trustworthy acknowledgement. */

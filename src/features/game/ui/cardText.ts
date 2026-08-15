@@ -4,22 +4,17 @@ import { isNumberCard, isWildCard } from '../engine/cards.ts';
 
 const COLOR_KEYS = {
   red: 'card.red',
-  blue: 'card.blue',
-  green: 'card.green',
   yellow: 'card.yellow',
+  green: 'card.green',
+  blue: 'card.blue',
 } as const;
 
 const KIND_KEYS = {
-  stop: 'card.stop',
-  plus: 'card.plus',
-  plusTwo: 'card.plusTwo',
-  direction: 'card.direction',
-  taki: 'card.taki',
-  superTaki: 'card.superTaki',
-  colorChange: 'card.colorChange',
-  king: 'card.king',
-  plusThree: 'card.plusThree',
-  breakPlusThree: 'card.breakPlusThree',
+  skip: 'card.skip',
+  reverse: 'card.reverse',
+  drawTwo: 'card.drawTwo',
+  wild: 'card.wild',
+  wildDrawFour: 'card.wildDrawFour',
 } as const;
 
 export function colorName(t: Translator, color: CardColor): string {
@@ -34,7 +29,7 @@ export function cardFaceLabel(t: Translator, card: Card): string {
   return t(KIND_KEYS[card.kind]);
 }
 
-/** Full accessible description, e.g. "Red 5" or "Super Taki". */
+/** Full accessible description, e.g. "Red 5" or "Wild Draw Four". */
 export function describeCard(t: Translator, card: Card): string {
   if (isNumberCard(card)) {
     return t('card.ariaNumber', { color: colorName(t, card.color), value: card.value });
