@@ -169,8 +169,15 @@ async function waitForServer() {
   fail('wrangler dev never became healthy');
 }
 
-/** Cards that must name a colour, and cards that must not. */
-const NEEDS_COLOR = new Set(['colorChange', 'superTaki']);
+/**
+ * Cards that must name a colour, and cards that must not.
+ *
+ * A hand-maintained copy of `requiresColorChoice`, because this script is plain
+ * JavaScript with no build step and cannot import the engine. Both wilds are here,
+ * which is the half that is easy to get wrong: a Wild Draw Four is a wild, and the
+ * room refuses it without a colour.
+ */
+const NEEDS_COLOR = new Set(['wild', 'wildDrawFour']);
 
 let requestCounter = 0;
 
@@ -201,19 +208,21 @@ async function attempt(client, action) {
  */
 async function takeTurn(clients) {
   const table = clients[0];
+  /*
+   * A Wild Draw Four freezes the table for everybody, including whoever is
+   * nominally on turn: the only seat that can move is the one it names.
+   */
+  const challenge = table.state?.challenge ?? null;
+  if (challenge !== null) {
+    const target = clients.find((client) => client.playerId === challenge.targetId);
+    if (target) {
+      await attempt(target, { type: 'acceptWildDrawFour' });
+    }
+    return;
+  }
   const onTurn = clients.find((client) => client.playerId === table.state?.currentPlayerId);
   if (!onTurn) {
     fail(`nobody at the table is on turn (${String(table.state?.currentPlayerId)})`);
-  }
-
-  // An open +3 freezes every other seat until somebody answers it.
-  if (onTurn.state.plusThree !== null) {
-    const breaker = onTurn.hand.find((card) => card.kind === 'breakPlusThree');
-    if (breaker && (await attempt(onTurn, { type: 'playCard', cardId: breaker.id }))) {
-      return;
-    }
-    await attempt(onTurn, { type: 'passBreak' });
-    return;
   }
 
   for (const card of [...onTurn.hand]) {
@@ -228,13 +237,29 @@ async function takeTurn(clients) {
     }
   }
 
-  // Nothing was playable. Inside a sequence of one's own that means closing it —
-  // drawing during a Taki is refused, which is the rule the engine enforces.
-  if (onTurn.state.takiMode !== null && onTurn.state.takiMode.playerId === onTurn.playerId) {
-    await attempt(onTurn, { type: 'closeTaki' });
+  /*
+   * Nothing was playable, so the pile — which does not end the turn. If the card it
+   * produces cannot be played either, the turn is ended explicitly. Both halves go
+   * over the socket, which is the point: the two-step turn is the part of UNO most
+   * likely to be wrong in the wiring rather than in the engine.
+   */
+  if (!(await attempt(onTurn, { type: 'drawCard' }))) {
+    await attempt(onTurn, { type: 'passTurn' });
     return;
   }
-  await attempt(onTurn, { type: 'drawCard' });
+  if (onTurn.state.phase === 'finished') {
+    return;
+  }
+  const drawn = onTurn.hand[onTurn.hand.length - 1];
+  if (drawn) {
+    const action = NEEDS_COLOR.has(drawn.kind)
+      ? { type: 'playCard', cardId: drawn.id, chosenColor: 'red' }
+      : { type: 'playCard', cardId: drawn.id };
+    if (await attempt(onTurn, action)) {
+      return;
+    }
+  }
+  await attempt(onTurn, { type: 'passTurn' });
 }
 
 async function run() {
@@ -292,14 +317,19 @@ async function run() {
    * and the guest's `privateHand` therefore said nothing about whether the
    * *creator's* hand had arrived — the two sockets are read independently, and
    * on a loaded machine the guest's frame is processed first often enough to
-   * matter. That is the whole of `SMOKE FAIL: expected eight cards each, got 0
-   * and 8`: not a deal that went wrong, a check that ran too early.
+   * matter. That is the whole of `SMOKE FAIL: expected seven cards each, got 0
+   * and 7`: not a deal that went wrong, a check that ran too early.
    */
   dana.send('roomCommand', { command: { type: 'startGame' } });
   await dana.awaitType('publicState');
   await Promise.all([dana.awaitType('privateHand'), yoni.awaitType('privateHand')]);
-  if (dana.hand.length !== 8 || yoni.hand.length !== 8) {
-    fail(`expected eight cards each, got ${dana.hand.length} and ${yoni.hand.length}`);
+  /*
+   * Seven each, unless the opening card was a Draw Two — which falls on the first
+   * player before anybody has moved, and is a real deal rather than a fault.
+   */
+  const dealt = [dana.hand.length, yoni.hand.length];
+  if (!dealt.every((size) => size === 7 || size === 9)) {
+    fail(`expected seven cards each, got ${dealt[0]} and ${dealt[1]}`);
   }
 
   // --- nobody is sent anybody else's cards ---
