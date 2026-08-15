@@ -371,6 +371,7 @@ no UI imports, and the UI holds no game rules.
 - [docs/threat-model.md](docs/threat-model.md) — what a malicious client can and cannot do, and what the operator can see
 - [docs/deployment.md](docs/deployment.md) — GitHub Pages step by step
 - [docs/qa-report.md](docs/qa-report.md) — what was tested, coverage, manual checklist, known limitations
+- [docs/port-review.md](docs/port-review.md) — porting Taki to UNO: what four review passes found, and why almost none of it was in the engine
 - [docs/review-notes.md](docs/review-notes.md) — findings from the expert review passes and the changes made
 - [docs/ui-review.md](docs/ui-review.md) — the interface pass: what was wrong with the UI/UX and what changed
 
