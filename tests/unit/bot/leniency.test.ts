@@ -186,6 +186,38 @@ describe('playing a little worse', () => {
     expect(kindsOver(table({ ...base, assist: { [CAT]: 3 } }))).toEqual(new Set(['skip', 'number']));
   });
 
+  it('takes it less often at the gentler of the two settings than at the harsher one', () => {
+    /*
+     * Two settings do this and they are meant to differ: a quarter of the time at 2,
+     * half at 3. The dial is the difference between "the table is being a bit kind"
+     * and "the table is carrying somebody", and a step that changed nothing would
+     * make the middle of the dial a lie.
+     */
+    const base = {
+      hands: {
+        [ANN]: cards('red:skip', 'red:5', 'red:6'),
+        [BEN]: cards('blue:4', 'blue:5'),
+        [CAT]: cards('green:3', 'green:4'),
+      },
+      discardPile: cards('red:9'),
+      currentPlayerIndex: 0,
+    };
+    const secondBestRate = (level: 2 | 3): number => {
+      let taken = 0;
+      for (let seed = 0; seed < 200; seed += 1) {
+        if (playedKind(table({ ...base, assist: { [CAT]: level } }), ANN, seed) === 'number') {
+          taken += 1;
+        }
+      }
+      return taken / 200;
+    };
+    const gentle = secondBestRate(2);
+    const generous = secondBestRate(3);
+    expect(gentle).toBeGreaterThan(0.1);
+    expect(gentle).toBeLessThan(0.4);
+    expect(generous).toBeGreaterThan(gentle);
+  });
+
   it('draws no randomness it would not have drawn, when nobody is being looked after', () => {
     /*
      * The seat's stream is what makes a round replay exactly, so an extra call at an
@@ -204,6 +236,42 @@ describe('playing a little worse', () => {
     };
     chooseBotMove(viewOf(state, ANN), counted);
     expect(calls).toBe(1);
+  });
+});
+
+describe('calling a bluff', () => {
+  /** A Wild Draw Four laid by `by`, waiting on Ann to answer it. */
+  function challenged(by: PlayerId, hands: Record<PlayerId, Card[]>, assist?: GameState['assist']) {
+    return table({
+      hands,
+      discardPile: cards('red:9', 'wildDrawFour'),
+      currentPlayerIndex: players('Ann', 'Ben', 'Cat').findIndex((player) => player.id === by),
+      challenge: { playerId: by, targetId: ANN, bluffed: true },
+      ...(assist ? { assist } : {}),
+    });
+  }
+
+  const FAT_HAND = {
+    [ANN]: cards('blue:4', 'blue:5'),
+    [BEN]: cards('green:1', 'green:2', 'green:3', 'green:4', 'green:5'),
+    [CAT]: cards('green:7'),
+  };
+
+  it('is what a robot does to a seat nobody is looking after, on the evidence it has', () => {
+    const move = decide(challenged(BEN, FAT_HAND), ANN);
+    expect(move?.action.type).toBe('challengeWildDrawFour');
+  });
+
+  it('is exactly what it does not do to a seat the table is leaning towards', () => {
+    /*
+     * The same table, the same five-card hand, the same bluff — and the robot takes
+     * the four cards instead. Being called out on a bluff is the harshest routine
+     * thing in this game, and a robot that enforced it would undo in one move
+     * everything the deal had quietly done all round. A person at the table may
+     * still challenge; only the machine stops.
+     */
+    const move = decide(challenged(BEN, FAT_HAND, { [BEN]: 2 }), ANN);
+    expect(move?.action.type).toBe('acceptWildDrawFour');
   });
 });
 

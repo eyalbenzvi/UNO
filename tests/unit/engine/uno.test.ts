@@ -165,18 +165,33 @@ describe('the window', () => {
     expect(toPublicGameState(drew).catchableUno).toEqual([]);
   });
 
-  it('a player cannot close their own window by taking the turn after it', () => {
+  it('stays open while the turn comes straight back to the player it is open on', () => {
+    /*
+     * The one shape in which a player is on turn with their own window open: at two
+     * seats, a Skip played as the second-to-last card hands the turn straight back.
+     * Alice is down to one uncalled card and on turn again without Bob ever having
+     * begun a turn — so the half of the rule that closes a window when the *next*
+     * player begins has not fired, and Bob's two seconds to catch her are still
+     * running. If taking her own turn back closed it, a Skip would be a free pass.
+     */
     const state = makeState({
       players: players('Alice', 'Bob'),
       currentPlayerIndex: 0,
       activeColor: 'red',
       discardPile: cards('red:5'),
-      hands: { 'p-alice': cards('red:9', 'red:8'), 'p-bob': cards('green:2', 'green:3') },
+      hands: { 'p-alice': cards('red:skip', 'red:8'), 'p-bob': cards('green:2', 'green:3') },
       drawPile: cards('blue:1', 'blue:2', 'blue:3'),
     });
     const cardId = state.hands['p-alice']![0]!.id;
     const played = expectOk(applyCommand(state, { type: 'playCard', playerId: 'p-alice', cardId })).state;
+    expect(played.currentPlayerIndex).toBe(0);
     expect(catchableSeats(played)).toContain('p-alice');
+
+    // She draws instead of playing her last card, which is the whole of her second
+    // turn — and puts her back on two, where nobody can be caught at all.
+    const drew = expectOk(applyCommand(played, { type: 'drawCard', playerId: 'p-alice' })).state;
+    expect(drew.hands['p-alice']).toHaveLength(2);
+    expect(catchableSeats(drew)).not.toContain('p-alice');
   });
 });
 

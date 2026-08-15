@@ -152,16 +152,18 @@ function settleUnoWindows(draft: Draft, before: Readonly<Record<PlayerId, readon
  * of the window that answers "begins", and the stamp is the backstop for a turn
  * that ends without anybody acting at all.
  *
- * The actor's own stamp survives, because a player cannot close their own window
- * by taking the turn that follows it.
+ * Everybody's, the actor's included, and the actor's costs nothing: a seat with an
+ * open window is on one card by definition, and every turn action changes that
+ * count — a play empties the hand and wins the round, a draw and a covered skip
+ * both add a card, and a pass is refused until one of those has happened. So a
+ * player is never catchable at the instant they act, and there is no stamp of
+ * their own left to protect. Sparing it would be a special case for a state no
+ * round can be in; the window that matters is closed by the *next* seat, and this
+ * is where that happens.
  */
 function beginTurnAction(draft: Draft, actorId: PlayerId): void {
-  const kept: Record<PlayerId, number> = {};
-  const own = draft.unoExposed[actorId];
-  if (own !== undefined) {
-    kept[actorId] = own;
-  }
-  draft.unoExposed = kept;
+  void actorId;
+  draft.unoExposed = {};
 }
 
 function freeze(draft: Draft): GameState {
@@ -803,10 +805,23 @@ function applyLeaveGame(state: GameState, playerId: PlayerId): CommandResult {
   let turnMoved = false;
   if (draft.challenge !== null) {
     if (draft.challenge.playerId === playerId) {
-      // The card's author has left. Cancel outright rather than charging somebody
-      // four cards for a bluff nobody can now call.
+      /*
+       * The card's author has left. The penalty is cancelled rather than collected:
+       * their hand is frozen out of play, so a challenge could no longer punish
+       * them however dishonest the card was, and charging the target four with no
+       * possibility of redress is worse than charging nobody.
+       *
+       * The round-end check still runs, and that is the point of it being here. A
+       * Wild Draw Four can be somebody's last card, and the win is deliberately
+       * deferred until the window resolves so the four cards are drawn first — so a
+       * branch that closed the window without checking would take a round from a
+       * player who had already put their last card on the pile. The room can reach
+       * this: a creator may remove a seat that has gone quiet, and the seat that
+       * went quiet may have gone quiet immediately after winning.
+       */
       draft.challenge = null;
       advanceTurn(draft, events);
+      finishIfEmpty(draft, playerId, events);
       turnMoved = true;
     } else if (draft.challenge.targetId === playerId) {
       // The victim has left. The window settles as if taken, minus the draw: their
